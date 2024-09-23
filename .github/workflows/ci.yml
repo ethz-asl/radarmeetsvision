@@ -1,0 +1,26 @@
+name: CI
+on: pull_request
+jobs:
+  pr_testing:
+    name: "${{ matrix.ci_script }}"
+    runs-on: self-hosted
+    container:
+      image: omavteam/radarmeetsvision:latest
+      credentials:
+        username: omavteam
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    strategy:
+      matrix:
+        ci_script: [pr_unittest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          set-safe-directory: true
+
+      - name: Run ${{ matrix.ci_script }}
+        run: |
+          bash -x ./ci/${{ matrix.ci_script }}.bash
