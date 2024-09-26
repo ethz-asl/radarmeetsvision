@@ -46,7 +46,7 @@ def setup_global_logger(output_dir=None):
     console_handler.setFormatter(color_formatter)
     logger.addHandler(console_handler)
 
-    if output_dir is not None:
+    if output_dir is not None and len(output_dir) > 0:
         log_file = datetime.now().strftime(f"{output_dir}/log_%Y-%m-%d_%H-%M-%S") + '.txt'
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(logging.INFO)

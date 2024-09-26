@@ -221,5 +221,6 @@ class Interface:
             'epoch': epoch,
             'previous_best': self.previous_best,
         }
-        if self.results_path is not None:
+        # TODO: How to check properly if current path is not .
+        if self.results_path is not None and len(str(self.results_path)) > 1:
             torch.save(checkpoint, self.results_path / f'latest_{epoch}.pth')
