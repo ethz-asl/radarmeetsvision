@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "radarmeetsvision"
+version = "0.0.1"
+description = "radarmeetsvision"
+readme = "README.md"
+authors = [{name = "ethz-asl"}]
+
+[project.optional-dependencies]
+# Add any optional dependencies here, e.g., testing or docs
+# testing = ["pytest"]
+
+[project.urls]
+"Homepage" = "https://github.com/ethz-asl/radarmeetsvision"

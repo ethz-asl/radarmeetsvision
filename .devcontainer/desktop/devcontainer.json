@@ -1,0 +1,55 @@
+{
+    "image": "omavteam/radarmeetsvision:latest",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "github.vscode-github-actions"
+            ],
+            "settings": {
+                "files.hotExit": "off",
+                "window.restoreWindows": "none",
+                "workbench.startupEditor": "none"
+            }
+        }
+    },
+    "remoteEnv": {
+        "DISPLAY": "${localEnv:DISPLAY}"
+    },
+    "remoteUser": "asl",
+    "initializeCommand": ".devcontainer/devcontainer-optional-mounts.sh",
+    "postStartCommand": "pip3 install -e .",
+    "mounts": [
+        {
+            "source": "${localEnv:HOME}/.bash-git-prompt",
+            "target": "/home/asl/.bash-git-prompt",
+            "type": "bind"
+        },
+        {
+            "source": "${localEnv:HOME}/Downloads",
+            "target": "/home/asl/Downloads",
+            "type": "bind"
+        },
+        {
+            "source": "${localEnv:HOME}/Storage",
+            "target": "/home/asl/Storage",
+            "type": "bind"
+        },
+        {
+            "source": "${localEnv:HOME}/.cache",
+            "target": "/home/asl/.cache",
+            "type": "bind"
+        }
+    ],
+    "runArgs": [
+        "--gpus",
+        "all",
+        "--privileged",
+        "--device=/dev/dri:/dev/dri",
+        "-v",
+        "/tmp/.X11-unix:/tmp/.X11-unix",
+        "-v",
+        "/dev/bus/usb:/dev/bus/usb",
+        "--net=host"
+    ]
+}
