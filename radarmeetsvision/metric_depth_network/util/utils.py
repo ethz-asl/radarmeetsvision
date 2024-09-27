@@ -28,18 +28,29 @@ def print_epoch_summary(epoch, epochs, result_dict):
 
 def get_empty_results(device):
     results = {
-        'd1': torch.tensor([0.0]).to(device),
-        'd2': torch.tensor([0.0]).to(device),
-        'd3': torch.tensor([0.0]).to(device),
-        'abs_rel': torch.tensor([0.0]).to(device),
-        'sq_rel': torch.tensor([0.0]).to(device),
-        'rmse': torch.tensor([0.0]).to(device),
-        'rmse_log': torch.tensor([0.0]).to(device),
-        'log10': torch.tensor([0.0]).to(device),
-        'silog': torch.tensor([0.0]).to(device)
+        'd1': 0.0,
+        'd2': 0.0,
+        'd3': 0.0,
+        'abs_rel': 0.0,
+        'sq_rel': 0.0,
+        'rmse': 0.0,
+        'rmse_log': 0.0,
+        'log10': 0.0,
+        'silog': 0.0
+    }
+    results_per_sample = {
+        'd1': [],
+        'd2': [],
+        'd3': [],
+        'abs_rel': [],
+        'sq_rel': [],
+        'rmse': [],
+        'rmse_log': [],
+        'log10': [],
+        'silog': []
     }
     nsamples = torch.tensor([0.0]).to(device)
-    return results, nsamples
+    return results, results_per_sample, nsamples
 
 def randomly_flip(img, target, valid_mask):
     if random.random() < 0.5:

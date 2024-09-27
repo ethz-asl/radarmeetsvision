@@ -31,6 +31,7 @@ class Interface:
         self.optimizer = None
         self.output_channels = None
         self.previous_best = self.reset_previous_best()
+        self.results = None
         self.results_path = None
         self.use_depth_prior = None
 
@@ -70,6 +71,9 @@ class Interface:
 
         else:
             logger.error(f'{self.results_path} does not exist')
+
+    def get_results(self):
+        return self.results, self.results_per_sample
 
     def load_model(self, pretrained_from=None):
         if self.encoder is not None and self.max_depth is not None and self.output_channels is not None and self.use_depth_prior is not None:
@@ -193,7 +197,7 @@ class Interface:
     def validate_epoch(self, epoch, val_loader):
         self.model.eval()
 
-        results, nsamples = get_empty_results(self.device)
+        self.results, self.results_per_sample, nsamples = get_empty_results(self.device)
         for i, sample in enumerate(val_loader):
             image, _, depth_target, mask = self.prepare_sample(sample, random_flip=True)
 
@@ -206,21 +210,22 @@ class Interface:
 
                     current_results = eval_depth(depth_prediction[mask], depth_target[mask])
                     if current_results is not None:
-                        for k in results.keys():
-                            results[k] += current_results[k]
+                        for k in self.results.keys():
+                            self.results[k] += current_results[k]
+                            self.results_per_sample[k].append(current_results[k])
                         nsamples += 1
 
-        self.update_best_result(results, nsamples)
+        self.update_best_result(self.results, nsamples)
         self.save_checkpoint(epoch)
 
 
     def save_checkpoint(self, epoch):
-        checkpoint = {
-            'model': self.model.state_dict(),
-            'optimizer': self.optimizer.state_dict(),
-            'epoch': epoch,
-            'previous_best': self.previous_best,
-        }
-        # TODO: How to check properly if current path is not .
         if self.results_path is not None and len(str(self.results_path)) > 1:
+            checkpoint = {
+                'model': self.model.state_dict(),
+                'optimizer': self.optimizer.state_dict(),
+                'epoch': epoch,
+                'previous_best': self.previous_best,
+            }
+            # TODO: How to check properly if current path is not .
             torch.save(checkpoint, self.results_path / f'latest_{epoch}.pth')
