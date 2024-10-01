@@ -147,13 +147,11 @@ class BlearnDataset(Dataset):
             depth = np.load(depth_path_alt)
 
         elif depth_normalized_path.is_file():
-            logger.warning("found normalized depth")
             if self.depth_range is not None and self.depth_min is not None:
                 depth_normalized = np.load(depth_normalized_path)
                 depth_valid_mask = (depth_normalized > 0.0) & (depth_normalized <= 1.0)
                 depth = np.zeros(depth_normalized.shape, dtype='float32')
                 depth[depth_valid_mask] = depth_normalized[depth_valid_mask] * self.depth_range + self.depth_min
-                logger.warning("unormalized image")
 
             else:
                 logger.error("Only found normalized depth, but did not find depth normalization file")
@@ -217,6 +215,9 @@ class BlearnDataset(Dataset):
                 norm_max = float(out.group(2))
                 norm_range = norm_max - norm_min
                 logger.info(f'Found norm range {norm_range:.3f} m')
+
+        else:
+            logger.error(f"Could not find: {depth_norm_file}")
 
         return norm_min, norm_max, norm_range
 
