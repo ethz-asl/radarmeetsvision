@@ -12,7 +12,7 @@ jobs:
 
     strategy:
       matrix:
-        ci_script: [pr_unittest]
+        ci_script: [pr_unittest, pr_evaluate_networks, pr_train_networks]
 
     steps:
       - name: Checkout

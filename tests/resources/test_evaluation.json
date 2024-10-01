@@ -1,0 +1,40 @@
+{
+    "scenarios": {
+        "Training": "tiny_dataset",
+        "Industrial Hall": "tiny_dataset_validation"
+    },
+    "networks": {
+        "RGB": null,
+        "Naive": null,
+        "Ours-S": null
+    },
+    "RGB": {
+        "use_depth_prior": false,
+        "output_channels": 1,
+        "relative_depth": 0,
+        "depth_min": 0.19983673095703125,
+        "depth_max": 120.49285888671875,
+        "encoder": "vits",
+        "plot_prediction": 0
+    },
+    "Ours-S": {
+        "use_depth_prior": true,
+        "output_channels": 2,
+        "relative_depth": 0,
+        "depth_min": 0.19983673095703125,
+        "depth_max": 120.49285888671875,
+        "encoder": "vits",
+        "plot_prediction": 1
+    },
+    "Naive": {
+        "use_depth_prior": false,
+        "output_channels": 1,
+        "relative_depth": 1,
+        "depth_min": 0.0,
+        "depth_max": 1.0,
+        "encoder": "vits",
+        "plot_prediction": 0
+    },
+    "height": 480,
+    "width": 640
+}

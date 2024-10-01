@@ -10,6 +10,7 @@ main() {
         build-essential
         ca-certificates
         ccache
+        cm-super
         curl
         gawk
         gnupg
