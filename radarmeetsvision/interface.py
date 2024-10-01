@@ -124,7 +124,7 @@ class Interface:
 
         # Convert to MultiDataset (also ok for one)
         dataset = MultiDatasetLoader(datasets, self.depth_min_max)
-        if task == 'train':
+        if 'train' in task:
             loader = DataLoader(dataset, batch_size=self.batch_size, pin_memory=True, drop_last=True, shuffle=True)
 
         else:
@@ -199,7 +199,7 @@ class Interface:
 
         self.results, self.results_per_sample, nsamples = get_empty_results(self.device)
         for i, sample in enumerate(val_loader):
-            image, _, depth_target, mask = self.prepare_sample(sample, random_flip=True)
+            image, _, depth_target, mask = self.prepare_sample(sample, random_flip=False)
 
             # TODO: Maybe not hardcode 10 here?
             if mask.sum() > 10:
@@ -214,6 +214,10 @@ class Interface:
                             self.results[k] += current_results[k]
                             self.results_per_sample[k].append(current_results[k])
                         nsamples += 1
+
+                if i % 10 == 0:
+                    abs_rel = (self.results["abs_rel"]/nsamples).item()
+                    logger.info(f'Iter: {i}/{len(val_loader)}, Absrel: {abs_rel:.3f}')
 
         self.update_best_result(self.results, nsamples)
         self.save_checkpoint(epoch)
