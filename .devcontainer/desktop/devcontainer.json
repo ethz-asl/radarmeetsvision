@@ -18,7 +18,7 @@
     },
     "remoteUser": "asl",
     "initializeCommand": ".devcontainer/devcontainer-optional-mounts.sh",
-    "postStartCommand": "pip3 install -e .",
+    "postStartCommand": "/bin/bash",
     "mounts": [
         {
             "source": "${localEnv:HOME}/.bash-git-prompt",

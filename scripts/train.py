@@ -14,8 +14,11 @@ def main(config, checkpoints, datasets, results):
     interface.set_output_channels(config['output_channels'])
     interface.set_use_depth_prior(config['use_depth_prior'])
 
-    pretrained_from = Path(checkpoints) / config['pretrained_from']
+    pretrained_from = None
+    if config['pretrained_from'] is not None:
+        pretrained_from = Path(checkpoints) / config['pretrained_from']
     interface.load_model(pretrained_from=pretrained_from)
+
     interface.set_results_path(results)
     interface.set_optimizer()
 
