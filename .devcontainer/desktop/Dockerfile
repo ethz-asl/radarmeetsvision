@@ -4,15 +4,16 @@ ARG FLIRIMAGING_GID=1001
 ARG TZ=Europe/Zurich
 ARG VGLUSERS_GID=1004
 ENV DEBIAN_FRONTEND=noninteractive
-ENV LANG="en_US.UTF-8"
-ENV LANGUAGE="en_US:en"
-ENV LC_ALL="en_US.UTF-8"
 ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/opt/hpcx/ompi/lib"
 ENV PATH="${PATH}:/opt/hpcx/ompi/bin"
 
 # All apt packages
 COPY devcontainer-all-packages.sh /tmp/devcontainer-all-packages.sh
 RUN /tmp/devcontainer-all-packages.sh && rm -f /tmp/devcontainer-all-packages.sh
+
+ENV LANG="en_US.UTF-8" \
+    LANGUAGE="en_US:en" \
+    LC_ALL="en_US.UTF-8"
 
 # Python packages
 COPY requirements.txt /tmp/requirements.txt

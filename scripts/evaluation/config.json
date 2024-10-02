@@ -1,0 +1,77 @@
+{
+    "scenarios": {
+        "Industrial Hall": "maschinenhalle0",
+        "Agricultural Field": "outdoor0",
+        "Rhône Glacier": "rhone_flight"
+    },
+    "networks": {
+        "Metric Depth \\cite{depthanythingv2}-S": "rgb_s_bs8_e9.pth",
+        "Metric Depth \\cite{depthanythingv2}-B": "rgb_b_bs4_e8.pth",
+        "Scaled Relative Depth \\cite{depthanythingv2}-S": "relrgb_s_bs8_e9.pth",
+        "Scaled Relative Depth \\cite{depthanythingv2}-B": "relrgb_b_bs4_e9.pth",
+        "Ours-S": "radar_s_bs8_e19.pth",
+        "Ours-B": "radar_b_bs4_e21.pth"
+    },
+    "Metric Depth \\cite{depthanythingv2}-S": {
+        "use_depth_prior": false,
+        "output_channels": 1,
+        "relative_depth": 0,
+        "depth_min": 0.19983673095703125,
+        "depth_max": 120.49285888671875,
+        "encoder": "vits",
+        "marker": "X",
+        "plot_prediction": 0
+    },
+    "Metric Depth \\cite{depthanythingv2}-B": {
+        "use_depth_prior": false,
+        "output_channels": 1,
+        "relative_depth": 0,
+        "depth_min": 0.19983673095703125,
+        "depth_max": 120.49285888671875,
+        "encoder": "vitb",
+        "marker": "X",
+        "plot_prediction": 0
+    },
+    "Scaled Relative Depth \\cite{depthanythingv2}-S": {
+        "use_depth_prior": false,
+        "output_channels": 1,
+        "relative_depth": 1,
+        "depth_min": 0.0,
+        "depth_max": 1.0,
+        "encoder": "vits",
+        "marker": "D",
+        "plot_prediction": 0
+    },
+    "Scaled Relative Depth \\cite{depthanythingv2}-B": {
+        "use_depth_prior": false,
+        "output_channels": 1,
+        "relative_depth": 1,
+        "depth_min": 0.0,
+        "depth_max": 1.0,
+        "encoder": "vitb",
+        "marker": "D",
+        "plot_prediction": 0
+    },
+    "Ours-S": {
+        "use_depth_prior": true,
+        "output_channels": 2,
+        "relative_depth": 0,
+        "depth_min": 0.19983673095703125,
+        "depth_max": 120.49285888671875,
+        "encoder": "vits",
+        "marker": "o",
+        "plot_prediction": 0
+    },
+    "Ours-B": {
+        "use_depth_prior": true,
+        "output_channels": 2,
+        "relative_depth": 0,
+        "depth_min": 0.19983673095703125,
+        "depth_max": 120.49285888671875,
+        "encoder": "vitb",
+        "marker": "o",
+        "plot_prediction": 1
+    },
+    "height": 480,
+    "width": 640
+}

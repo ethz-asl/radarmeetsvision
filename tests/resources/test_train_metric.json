@@ -1,0 +1,21 @@
+{
+    "epochs": 1,
+    "encoder": "vits",
+    "depth_min": 0.19983673095703125,
+    "depth_max": 120.49285888671875,
+    "output_channels": 1,
+    "use_depth_prior": 0,
+    "pretrained_from": null,
+    "height": 518,
+    "width": 518,
+    "task": {
+        "train_all": {
+            "dir": "",
+            "datasets": ["tiny_dataset"]
+        },
+        "val_all": {
+            "dir": "",
+            "datasets": ["tiny_dataset_validation"]
+        }
+    }
+}

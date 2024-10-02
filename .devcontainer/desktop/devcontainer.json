@@ -3,8 +3,7 @@
     "customizations": {
         "vscode": {
             "extensions": [
-                "ms-python.python",
-                "github.vscode-github-actions"
+                "ms-python.python"
             ],
             "settings": {
                 "files.hotExit": "off",
@@ -18,7 +17,7 @@
     },
     "remoteUser": "asl",
     "initializeCommand": ".devcontainer/devcontainer-optional-mounts.sh",
-    "postStartCommand": "/bin/bash",
+    "postStartCommand": "pip install -e .",
     "mounts": [
         {
             "source": "${localEnv:HOME}/.bash-git-prompt",

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if pip install .
+if pip install -e .
 then
     echo "Installation successful"
 else
