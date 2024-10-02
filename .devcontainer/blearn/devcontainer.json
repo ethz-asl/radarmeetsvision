@@ -1,5 +1,5 @@
 {
-    "image": "omavteam/radarmeetsvision:latest",
+    "image": "omavteam/radarmeetsvision:blearn-latest",
     "customizations": {
         "vscode": {
             "extensions": [
