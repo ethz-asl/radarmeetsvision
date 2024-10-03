@@ -23,7 +23,7 @@ from .transform import Resize, PrepareForNet, Crop
 logger = logging.getLogger(__name__)
 
 class BlearnDataset(Dataset):
-    def __init__(self, dataset_dir, mode, size):
+    def __init__(self, dataset_dir, mode, size, index_min=0, index_max=-1):
         self.mode = mode
         self.size = size
 
@@ -65,19 +65,24 @@ class BlearnDataset(Dataset):
         self.width = size[1]
         self.train_split = 0.8
 
-        self.filelist = self.get_filelist()
+        self.filelist = self.get_filelist(index_min, index_max)
         if self.filelist:
             logger.info(f"Loaded {dataset_dir} with length {len(self.filelist)}")
 
-    def get_filelist(self):
-        # Sort and find all .jpg's
+
+    def get_filelist(self, index_min=0, index_max=-1):
         all_rgb_files = list(self.rgb_dir.glob('*.jpg'))
         all_rgb_files = sorted(all_rgb_files)
         all_indexes = []
+
         for rgb_file in all_rgb_files:
             out = re.search(self.rgb_mask, str(rgb_file))
             if out is not None:
                 all_indexes.append(int(out.group(1)))
+
+        if index_min != 0 or index_max != -1:
+            logger.info(f'Limiting dataset index: {index_min} - {index_max}')
+            all_indexes = [idx for idx in all_indexes if index_min <= idx <= index_max]
 
         train_split_len = round(len(all_indexes) * self.train_split)
         val_split_len = len(all_indexes) - train_split_len
@@ -94,11 +99,12 @@ class BlearnDataset(Dataset):
         else:
             filelist = None
 
-        # Default case is to use full split
+        # Log the number of files selected
         if filelist is not None:
             logger.info(f"Using {len(filelist)}/{len(all_indexes)} for task {self.mode}")
 
         return filelist
+
 
     def __getitem__(self, item):
         index = int(self.filelist[item])

@@ -11,11 +11,12 @@
     "task": {
         "train_all": {
             "dir": "training",
-            "datasets": ["rhone2", "mountain_area", "rural_area", "road_corridor", "HyperSim"]
+            "datasets": ["rhone2", "mountain_area", "rural_area", "road_corridor", "HyperSim"],
         },
         "val_all": {
             "dir": "validation",
-            "datasets": ["outdoor0", "maschinenhalle0", "rhone_flight"]
+            "datasets": ["outdoor0", "maschinenhalle0", "rhone_flight"],
+            "indeces": [[0, -1], [0, -1], [1205, 1505]]
         }
     }
 }

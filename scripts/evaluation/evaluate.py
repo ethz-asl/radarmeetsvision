@@ -21,7 +21,10 @@ class Evaluation:
         self.results_per_sample = {}
         self.results_dict = {}
         self.interface = rmv.Interface()
-        self.networks_dir = Path(args.network)
+        self.networks_dir = None
+        if args.network is not None:
+            self.networks_dir = Path(args.network)
+
         self.datasets_dir = args.dataset
         self.results, self.results_per_sample = None, None
         self.setup_interface(config, scenario_key, network_key)
@@ -43,9 +46,10 @@ class Evaluation:
         self.interface.set_output_channels(network_config['output_channels'])
         self.interface.set_use_depth_prior(network_config['use_depth_prior'])
 
-        network_file = config['networks'][network_key]
-        if network_file is not None:
-            network_file = self.networks_dir / network_file
+        network_file = None
+        if self.networks_dir is not None and config['networks'][network_key] is not None:
+            network_file = self.networks_dir / config['networks'][network_key]
+
         self.interface.load_model(pretrained_from=network_file)
 
         self.interface.set_size(config['height'], config['width'])
@@ -53,7 +57,8 @@ class Evaluation:
         self.interface.set_criterion()
 
         dataset_list = [config['scenarios'][scenario_key]]
-        self.loader, _ = self.interface.get_dataset_loader('val_all', self.datasets_dir, dataset_list)
+        index_list = config.get('index', None)
+        self.loader, _ = self.interface.get_dataset_loader('val_all', self.datasets_dir, dataset_list, index_list)
 
     def get_results_per_sample(self):
         return self.results_per_sample

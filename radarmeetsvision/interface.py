@@ -112,13 +112,18 @@ class Interface:
         return self.optimizer
 
 
-    def get_dataset_loader(self, task, datasets_dir, dataset_list):
+    def get_dataset_loader(self, task, datasets_dir, dataset_list, index_list=None):
         datasets = []
         datasets_dir = Path(datasets_dir)
-        for dataset_name in dataset_list:
+        for i, dataset_name in enumerate(dataset_list):
             dataset_dir = datasets_dir / dataset_name
 
-            dataset = BlearnDataset(dataset_dir, task, self.size)
+            index_min, index_max = 0, -1
+            if index_list != None:
+                index_min, index_max = index_list[i][0], index_list[i][1]
+
+            dataset = BlearnDataset(dataset_dir, task, self.size, index_min, index_max)
+
             if len(dataset) > 0:
                 datasets.append(dataset)
 

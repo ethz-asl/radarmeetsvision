@@ -15,7 +15,8 @@
         },
         "val_all": {
             "dir": "validation",
-            "datasets": ["outdoor0", "maschinenhalle0", "rhone_flight"]
+            "datasets": ["outdoor0", "maschinenhalle0", "rhone_flight"],
+            "indeces": [[0, -1], [0, -1], [1205, 1505]]
         }
     }
 }
