@@ -15,12 +15,10 @@ dn = os.path.dirname(__file__)
 if dn not in sys.path:
     sys.path.append(dn)
 
-# Import own code now
-from src.blender import Blender  # NOQA
-
+from src.blender import Blender
 
 def main():
-    b = Blender(config_file="config/config_road_corridor_demo.yml")
+    b = Blender(config_file="config/config_rhone.yml")
     b.start()
 
 

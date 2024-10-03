@@ -17,7 +17,7 @@
     },
     "remoteUser": "asl",
     "initializeCommand": ".devcontainer/devcontainer_optional_mounts.sh",
-    "postStartCommand": "pip install -e .",
+    "postStartCommand": "",
     "mounts": [
         {
             "source": "${localEnv:HOME}/.bash-git-prompt",
