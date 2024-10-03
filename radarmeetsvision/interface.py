@@ -36,7 +36,8 @@ class Interface:
         self.use_depth_prior = None
 
     def reset_previous_best(self):
-        return {'d1': 0, 'd2': 0, 'd3': 0, 'abs_rel': 100, 'sq_rel': 100, 'rmse': 100, 'rmse_log': 100, 'log10': 100, 'silog': 100}
+        return {'d1': 0, 'd2': 0, 'd3': 0, 'abs_rel': 100, 'sq_rel': 100, 'rmse': 100, 'rmse_log': 100, 'log10': 100, 'silog': 100,
+        'average_depth': 0.0}
 
     def set_use_depth_prior(self, use):
         self.use_depth_prior = use

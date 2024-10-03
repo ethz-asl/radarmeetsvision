@@ -12,6 +12,7 @@ main() {
         ccache
         cm-super
         curl
+        dvipng
         gawk
         gnupg
         htop
@@ -27,6 +28,8 @@ main() {
         software-properties-common
         ssh
         sudo
+        texlive-fonts-recommended
+        texlive-latex-extra
         udev
         unzip
         usbutils
