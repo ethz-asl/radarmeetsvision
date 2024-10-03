@@ -57,7 +57,7 @@ class Evaluation:
         self.interface.set_criterion()
 
         dataset_list = [config['scenarios'][scenario_key]]
-        index_list = config.get('index', None)
+        index_list = [config['index'][config["scenarios"][scenario_key]]]
         self.loader, _ = self.interface.get_dataset_loader('val_all', self.datasets_dir, dataset_list, index_list)
 
     def get_results_per_sample(self):
