@@ -8,8 +8,8 @@ ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/opt/hpcx/ompi/lib"
 ENV PATH="${PATH}:/opt/hpcx/ompi/bin"
 
 # All apt packages
-COPY devcontainer-all-packages.sh /tmp/devcontainer-all-packages.sh
-RUN /tmp/devcontainer-all-packages.sh && rm -f /tmp/devcontainer-all-packages.sh
+COPY devcontainer_all_packages.sh /tmp/devcontainer_all_packages.sh
+RUN /tmp/devcontainer_all_packages.sh && rm -f /tmp/devcontainer_all_packages.sh
 
 ENV LANG="en_US.UTF-8" \
     LANGUAGE="en_US:en" \

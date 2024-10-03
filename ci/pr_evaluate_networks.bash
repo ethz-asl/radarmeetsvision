@@ -10,7 +10,7 @@ fi
 rm -rf tests/resources/*.pkl
 
 # Run the evaluation script
-python3 scripts/evaluation/evaluate_networks.py --dataset tests/resources --config tests/resources/test_evaluation.json --output tests/resources --network tests/resources
+python3 scripts/evaluation/evaluate.py --dataset tests/resources --config tests/resources/test_evaluation.json --output tests/resources --network tests/resources
 
 TEX_FILE="tests/resources/results/results_table0.tex"
 if [[ -f "$TEX_FILE" && -s "$TEX_FILE" ]]; then
