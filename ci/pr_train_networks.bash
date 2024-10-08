@@ -13,7 +13,7 @@ config_relative=$config_path/test_train_relative.json
 pip install -e .
 
 # RADAR TRAINING (depth prior + 2 output channels)
-python3 scripts/train.py \
+python3 scripts/train/train.py \
 --checkpoints $checkpoints \
 --config $config_radar \
 --datasets $datasets \
@@ -27,7 +27,7 @@ else
 fi
 
 # RGB TRAINING (no depth prior + 1 output channel)
-python3 scripts/train.py \
+python3 scripts/train/train.py \
 --checkpoints $checkpoints \
 --config $config_metric \
 --datasets $datasets \
@@ -41,7 +41,7 @@ else
 fi
 
 # Relative RGB TRAINING (no depth prior + 1 output channel)
-python3 scripts/train.py \
+python3 scripts/train/train.py \
 --checkpoints $checkpoints \
 --config $config_relative \
 --datasets $datasets \

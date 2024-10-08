@@ -3,19 +3,20 @@
     "encoder": "vitb",
     "depth_min": 0.19983673095703125,
     "depth_max": 120.49285888671875,
-    "output_channels": 2,
-    "use_depth_prior": 1,
+    "output_channels": 1,
+    "use_depth_prior": 0,
     "pretrained_from": "depth_anything_v2_metric_vkitti_vitb.pth",
     "height": 518,
     "width": 518,
     "task": {
         "train_all": {
             "dir": "training",
-            "datasets": ["rhone2", "mountain_area", "rural_area", "road_corridor", "HyperSim"]
+            "datasets": ["rhone2", "mountain_area", "rural_area", "road_corridor", "HyperSim"],
         },
         "val_all": {
             "dir": "validation",
-            "datasets": ["outdoor0", "maschinenhalle0", "rhone_flight"]
+            "datasets": ["outdoor0", "maschinenhalle0", "rhone_flight"],
+            "indeces": [[0, -1], [0, -1], [1205, 1505]]
         }
     }
 }

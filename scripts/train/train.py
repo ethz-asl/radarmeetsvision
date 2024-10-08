@@ -29,8 +29,9 @@ def main(config, checkpoints, datasets, results):
     loaders = {}
     for task in config['task'].keys():
         dataset_list = config['task'][task]['datasets']
+        index_list = config['task'][task].get('indeces', None)
         datasets_dir = Path(datasets) / config['task'][task]['dir']
-        loader, _ = interface.get_dataset_loader(task, str(datasets_dir), dataset_list)
+        loader, _ = interface.get_dataset_loader(task, str(datasets_dir), dataset_list, index_list)
         loaders[task] = loader
 
     for epoch in range(config['epochs']):

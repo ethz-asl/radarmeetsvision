@@ -3,6 +3,10 @@
         "Training": "tiny_dataset",
         "Industrial Hall": "tiny_dataset_validation"
     },
+    "index": {
+        "tiny_dataset": [0, -1],
+        "tiny_dataset_validation": [0, 3]
+    },
     "networks": {
         "RGB": null,
         "Naive": null,

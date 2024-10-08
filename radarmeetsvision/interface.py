@@ -36,7 +36,8 @@ class Interface:
         self.use_depth_prior = None
 
     def reset_previous_best(self):
-        return {'d1': 0, 'd2': 0, 'd3': 0, 'abs_rel': 100, 'sq_rel': 100, 'rmse': 100, 'rmse_log': 100, 'log10': 100, 'silog': 100}
+        return {'d1': 0, 'd2': 0, 'd3': 0, 'abs_rel': 100, 'sq_rel': 100, 'rmse': 100, 'rmse_log': 100, 'log10': 100, 'silog': 100,
+        'average_depth': 0.0}
 
     def set_use_depth_prior(self, use):
         self.use_depth_prior = use
@@ -112,13 +113,18 @@ class Interface:
         return self.optimizer
 
 
-    def get_dataset_loader(self, task, datasets_dir, dataset_list):
+    def get_dataset_loader(self, task, datasets_dir, dataset_list, index_list=None):
         datasets = []
         datasets_dir = Path(datasets_dir)
-        for dataset_name in dataset_list:
+        for i, dataset_name in enumerate(dataset_list):
             dataset_dir = datasets_dir / dataset_name
 
-            dataset = BlearnDataset(dataset_dir, task, self.size)
+            index_min, index_max = 0, -1
+            if index_list != None:
+                index_min, index_max = index_list[i][0], index_list[i][1]
+
+            dataset = BlearnDataset(dataset_dir, task, self.size, index_min, index_max)
+
             if len(dataset) > 0:
                 datasets.append(dataset)
 

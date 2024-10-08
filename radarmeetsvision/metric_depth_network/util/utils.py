@@ -36,7 +36,8 @@ def get_empty_results(device):
         'rmse': 0.0,
         'rmse_log': 0.0,
         'log10': 0.0,
-        'silog': 0.0
+        'silog': 0.0,
+        'average_depth': 0.0
     }
     results_per_sample = {
         'd1': [],
@@ -47,7 +48,8 @@ def get_empty_results(device):
         'rmse': [],
         'rmse_log': [],
         'log10': [],
-        'silog': []
+        'silog': [],
+        'average_depth': []
     }
     nsamples = torch.tensor([0.0]).to(device)
     return results, results_per_sample, nsamples

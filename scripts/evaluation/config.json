@@ -4,6 +4,11 @@
         "Agricultural Field": "outdoor0",
         "Rhône Glacier": "rhone_flight"
     },
+    "index": {
+        "maschinenhalle0": [0, -1],
+        "outdoor0": [0, -1],
+        "rhone_flight": [1205, 1505]
+    },
     "networks": {
         "Metric Depth \\cite{depthanythingv2}-S": "rgb_s_bs8_e9.pth",
         "Metric Depth \\cite{depthanythingv2}-B": "rgb_b_bs4_e8.pth",
