@@ -38,11 +38,11 @@ class Blender:
         # Extract the config values
         self.config = config
 
-        # Get and setup the camera
-        self.setup_camera()
-
         # Setup the render
         self.setup_render()
+
+        # Get and setup the camera
+        self.setup_camera()
 
         # Setup the light
         self.setup_light()
@@ -71,6 +71,27 @@ class Blender:
         self.render_start = None
         self.initial_altitude = None
 
+    def render_frame(self, pose, use_second_view=False):
+        # Add keyframe for visualization
+        self.add_keyframe(self.i)
+
+        quat_camera = self.set_pose(pose)
+        ret = self.render_rgbd(self.i, use_second_view=use_second_view)
+
+        # Rendering can fail for validation or demo mode, that is why we don't need to enforce sucess
+        if (ret == 0) or (self.config["mode"] == "validation" or self.config["mode"] == "demo"):
+            if len(pose) > 2:
+                self.log_pose(pose, quat_camera, timestamp=pose[2], use_second_view=use_second_view)
+            else:
+                self.log_pose(pose, quat_camera, use_second_view=use_second_view)
+
+            # Successfully rendered RGB, increase image count
+            if not use_second_view:
+                self.i += 1
+
+        else:
+            logger.warning("Faulty RGB rendering detected")
+
     def start(self):
         self.i = 0
         number_of_samples = self.config["paths"].get("number_of_samples", 0)
@@ -78,64 +99,37 @@ class Blender:
         logger.info("Set use second view to: {}".format(use_second_view))
         ret = 0
 
-        for p in self.paths.get_next_pose():
-            # Do terrain following
+        for pose in self.paths.get_next_pose():
             if self.config["mode"] != "validation":
-                print("following terrain")
-                p_tf = self.follow_terrain(p)
-                if p_tf is None:
-                    continue
-            else:
-                p_tf = p
+                print("Following terrain")
 
-            # Set camera pose
-            q = self.set_pose(p_tf)
+                pose_tf = self.follow_terrain(pose)
+                if pose_tf is not None:
+                    pose = pose_tf
 
             # Set sun intensity
             if self.mode == "dataset":
                 self.set_sun_angle()
 
-            # Add keyframe for visualization
-            # self.add_keyframe(self.i)
+            self.render_frame(pose, use_second_view=False)
 
-            # Render rgbd
-            ret = self.render_rgbd(self.i)
+            if use_second_view:
+                pose_second = self.get_second_pose(pose)
+                self.render_frame(pose_second, use_second_view=True)
 
-            if (ret == 0) or (self.config["mode"] is "validation" or self.config["mode"] is "demo"):
-                # Log pose
-                if len(p) > 2:
-                    self.log_pose(p_tf, q, timestamp=p[2])
-                else:
-                    self.log_pose(p_tf, q)
-
-                # Successfully rendered RGB, increase image count
-                self.i += 1
-
-            else:
-                logger.warning("Faulty RGB rendering detected")
-
-            # Timing
             if self.render_start:
-                # Duration in seconds
                 self.render_dur = round(time.monotonic() - self.render_start)
-
-                # LP filter
                 self.render_dur, self.render_window = Blender.update_sliding_window(
                     self.render_dur, self.render_window)
+                self.render_rem_time = (number_of_samples - self.i) * self.render_dur
 
-                self.render_rem_time = (
-                    number_of_samples - self.i) * self.render_dur
-
-            # Log it
-            logger.info("Rendered {}/{}, rem. time: {}".format(self.i,
-                                                               number_of_samples, Blender.format_t(self.render_rem_time)))
+            logger.info("Rendered {}/{}, rem. time: {}".format(self.i, number_of_samples, Blender.format_t(self.render_rem_time)))
 
             # Break from loop if enough samples successfully rendered
             if self.i >= number_of_samples:
                 logger.info("Rendered {} samples, finished".format(self.i))
                 break
 
-            # Restart the timer
             self.render_start = time.monotonic()
 
         # Too many errors
@@ -144,21 +138,14 @@ class Blender:
         else:
             logger.info("Success, finished")
 
-    def render_rgbd(self, i):
-        filepath = self.project_dir / "rgb" / f"{i:05d}_rgb.jpg"
-        if filepath.is_file():
-            # Check first if the depth is valid, otherwise need to redo it
-            depth_file = self.project_dir / "depth" / f"{i:05d}_d.npy"
-            if depth_file.is_file():
-                depth = np.load(depth_file)
-                if np.abs(depth).max() < 1000:
-                    logger.warning(f"Skipping: {filepath}")
-                    return 0
+    def render_rgbd(self, i, use_second_view=False):
+        filepath = self.project_dir / "rgb"
+        if not use_second_view:
+            filepath /= f"{i:05d}_rgb.jpg"
+        else:
+            filepath /= f"{i-1:05d}_rgb2.jpg"
 
-        filepath = str(filepath)
-
-        bpy.context.scene.render.filepath = filepath
-
+        bpy.context.scene.render.filepath = str(filepath)
         for n in self.tree.nodes:
             self.tree.nodes.remove(n)
         rl = self.tree.nodes.new('CompositorNodeRLayers')
@@ -168,7 +155,7 @@ class Blender:
         self.links.new(rl.outputs[0], vl.inputs[0])
         self.links.new(rl.outputs[2], vl.inputs[1])
 
-        # Render
+        # Execute the rendering
         bpy.context.scene.render.resolution_percentage = 100
         bpy.ops.render.render(write_still=True)
 
@@ -176,10 +163,7 @@ class Blender:
         pixels = np.array(bpy.data.images['Viewer Node'].pixels)
 
         # Reshape
-        image = pixels.reshape(
-            self.render.resolution_y,
-            self.render.resolution_x,
-            4)
+        image = pixels.reshape(self.render.resolution_y, self.render.resolution_x, 4)
 
         # Depth
         dmap = image[:, :, 3]
@@ -193,17 +177,22 @@ class Blender:
             return 1
 
         # Save the depth image in pretty img format and binary matrix
-        plt.imsave(str(self.project_dir / "depth" / "{:05d}_d.png".format(i)), dmap, cmap='viridis')
-        np.save(str(self.project_dir / "depth" / "{:05d}_d".format(i)), dmap)
+        depth_dir = self.project_dir / "depth"
+        if not use_second_view:
+            depth_jpg_file = depth_dir / f"{i:05d}_d.png"
+            depth_npy_file = depth_dir / f"{i:05d}_d"
 
-        # All good
+        else:
+            depth_jpg_file = depth_dir / f"{i-1:05d}_d2.png"
+            depth_npy_file = depth_dir / f"{i-1:05d}_d2"
+
+        plt.imsave(str(depth_jpg_file), dmap, cmap='viridis')
+        np.save(str(depth_npy_file), dmap)
         return 0
 
     def set_pose(self, p):
-        # Set camera position
         self.set_camera_position(p[0])
 
-        # Set camera pose
         if (len(p[1]) == 3):
             self.set_camera_rotation_euler(p[1])
         else:
@@ -213,25 +202,12 @@ class Blender:
         # Return quaternion
         return self.camera.rotation_euler.to_quaternion()
 
-    def get_second_pose(self, p):
-        p_cp = (p[0].copy(), p[1].copy())
-
-        # Set pose to further down
-        down_vel_min, down_vel_max = 0.025, 0.1
-        side_vel_min, side_vel_max = -0.1, 0.1
-        fps = 1.0
-        p_cp[0].x += 1.0 / fps * random.random() * (side_vel_max - side_vel_min) + side_vel_min  # NOQA
-        p_cp[0].y += 1.0 / fps * random.random() * (side_vel_max - side_vel_min) + side_vel_min  # NOQA
-        p_cp[0].z += 1.0 / fps * random.random() * (down_vel_max - down_vel_min) + down_vel_min  # NOQA
-
-        # Set attitude
-        euler_min, euler_max = -deg_to_rad(5), deg_to_rad(5)
-        p_cp[1].x += random.random() * (euler_max - euler_min) + euler_min
-        p_cp[1].y += random.random() * (euler_max - euler_min) + euler_min
-        p_cp[1].z += random.random() * (euler_max - euler_min) + euler_min
-
-        # Return the new pose
-        return p_cp
+    def get_second_pose(self, pose):
+        # TODO: Would be nice to have an interface of some sort to get different 2nd view
+        # Right now it is hardcoded as a second 90° view
+        pose_cp = (pose[0].copy(), pose[1].copy())
+        pose_cp[1].y += deg_to_rad(90)
+        return pose_cp
 
     def add_keyframe(self, i):
         new_obj = self.camera.copy()
@@ -304,12 +280,9 @@ class Blender:
         return True
 
     def log_pose(self, p, q, use_second_view=False, timestamp=None):
-        # Index
         index = self.i
-
-        # For second view
         if use_second_view:
-            index = "{}_2".format(self.i)
+            index = f"{self.i - 1}_2"
 
         # Append the pose to the file
         with self.poses_log_file.open('a') as f:
@@ -349,12 +322,9 @@ class Blender:
         self.scene.cycles.samples = 128
 
         # Setup based on config
-        self.render.resolution_x = self.config["output"].get(
-            "resolution_x", 640)
-        self.render.resolution_y = self.config["output"].get(
-            "resolution_y", 480)
-        self.render.image_settings.file_format = self.config["output"].get(
-            "format", "JPEG")
+        self.render.resolution_x = self.config["output"].get("resolution_x", 640)
+        self.render.resolution_y = self.config["output"].get("resolution_y", 480)
+        self.render.image_settings.file_format = self.config["output"].get("format", "JPEG")
 
         logger.info("Resolution x: {}".format(self.render.resolution_x))
         logger.info("Resolution y: {}".format(self.render.resolution_y))
@@ -444,7 +414,7 @@ class Blender:
         output_dir = Path(self.config["output"].get("dir", "output"))
         if not output_dir.is_dir():
             os.mkdir(output_dir)
-            logger.warn("Output directory does not exist")
+            logger.warning("Output directory does not exist")
 
         # For every run folder structure is 001/<images>, 002/<images>,
         proj_count = 0
@@ -482,12 +452,6 @@ class Blender:
         if not (self.project_dir / "depth").exists():
             os.mkdir(str(self.project_dir / "depth"))
 
-        if not (self.project_dir / "segmentation").exists():
-            os.mkdir(str(self.project_dir / "segmentation"))
-
-        if not (self.project_dir / "depth_prior").exists():
-            os.mkdir(str(self.project_dir / "depth_prior"))
-
         # Poses log file, preparation
         self.poses_log_file = self.project_dir / "poses.txt"
         self.poses_log_file.touch(exist_ok=True)
@@ -517,16 +481,6 @@ class Blender:
 
 def deg_to_rad(deg):
     return np.pi * deg / 180.0
-
-# ---------------------------------------------------------------
-# 3x4 P matrix from Blender camera
-# ---------------------------------------------------------------
-
-# Build intrinsic camera parameters from Blender camera data
-#
-# See notes on this in
-# blender.stackexchange.com/questions/15102/what-is-blenders-camera-projection-matrix-model
-
 
 def get_calibration_matrix_K_from_blender(camd):
     f_in_mm = camd.lens
@@ -561,81 +515,3 @@ def get_calibration_matrix_K_from_blender(camd):
          (0, alpha_v, v_0),
          (0, 0, 1)))
     return K
-
-# Returns camera rotation and translation matrices from Blender.
-#
-# There are 3 coordinate systems involved:
-#    1. The World coordinates: "world"
-#       - right-handed
-#    2. The Blender camera coordinates: "bcam"
-#       - x is horizontal
-#       - y is up
-#       - right-handed: negative z look-at direction
-#    3. The desired computer vision camera coordinates: "cv"
-#       - x is horizontal
-#       - y is down (to align to the actual pixel coordinates
-#         used in digital images)
-#       - right-handed: positive z look-at direction
-
-
-def get_3x4_RT_matrix_from_blender(cam):
-    # bcam stands for blender camera
-    R_bcam2cv = Matrix(
-        ((1, 0, 0),
-         (0, -1, 0),
-         (0, 0, -1)))
-
-    # Transpose since the rotation is object rotation,
-    # and we want coordinate rotation
-    # R_world2bcam = cam.rotation_euler.to_matrix().transposed()
-    # T_world2bcam = -1*R_world2bcam * location
-    #
-    # Use matrix_world instead to account for all constraints
-    location, rotation = cam.matrix_world.decompose()[0:2]
-    R_world2bcam = rotation.to_matrix().transposed()
-
-    # Convert camera location to translation vector used in coordinate changes
-    # T_world2bcam = -1*R_world2bcam*cam.location
-    # Use location from matrix_world to account for constraints:
-    T_world2bcam = -1 * R_world2bcam @ location
-
-    # Build the coordinate transform matrix from world to computer vision camera
-    # NOTE: Use * instead of @ here for older versions of Blender
-    # TODO: detect Blender version
-    R_world2cv = R_bcam2cv @ R_world2bcam
-    T_world2cv = R_bcam2cv @ T_world2bcam
-
-    # put into 3x4 matrix
-    RT = Matrix((
-        R_world2cv[0][:] + (T_world2cv[0],),
-        R_world2cv[1][:] + (T_world2cv[1],),
-        R_world2cv[2][:] + (T_world2cv[2],)
-    ))
-    return RT
-
-
-def get_3x4_P_matrix_from_blender(cam):
-    K = get_calibration_matrix_K_from_blender(cam.data)
-    RT = get_3x4_RT_matrix_from_blender(cam)
-    return K @ RT, K, RT
-
-# ----------------------------------------------------------
-# Alternate 3D coordinates to 2D pixel coordinate projection code
-# adapted from https://blender.stackexchange.com/questions/882/how-to-find-image-coordinates-of-the-rendered-vertex?lq=1
-# to have the y axes pointing up and origin at the top-left corner
-
-
-def project_by_object_utils(cam, point):
-    scene = bpy.context.scene
-    co_2d = bpy_extras.object_utils.world_to_camera_view(scene, cam, point)
-    render_scale = scene.render.resolution_percentage / 100
-    render_size = (
-        int(scene.render.resolution_x * render_scale),
-        int(scene.render.resolution_y * render_scale),
-    )
-    return Vector(
-        (co_2d.x *
-         render_size[0],
-         render_size[1] -
-         co_2d.y *
-         render_size[1]))
