@@ -70,8 +70,9 @@ class Paths:
             rot_y = x * sin(phi) + y * cos(phi) + start_pos.y
 
             # Append pose
+            demo_euler_y = self.config["paths"].get("demo_euler_y", 0.0)
             self.path_poses.append((Vector((rot_x, rot_y, start_pos.z)),
-                                    Vector((0.0, 0.0, phi - theta))))
+                                    Vector((0.0, demo_euler_y, phi - theta))))
 
             # Increase angle
             theta += incr
