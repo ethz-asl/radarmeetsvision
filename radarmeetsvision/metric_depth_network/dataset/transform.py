@@ -238,7 +238,7 @@ class PrepareForNet(object):
             sample["mask"] = sample["mask"].astype(np.float32)
             sample["mask"] = np.ascontiguousarray(sample["mask"])
         
-        if "depth" in sample:
+        if "depth" in sample and sample["depth"] is not None:
             depth = sample["depth"].astype(np.float32)
             sample["depth"] = np.ascontiguousarray(depth)
             

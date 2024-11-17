@@ -97,6 +97,7 @@ class BlearnDataset(Dataset):
             filelist = all_indexes
 
         else:
+            logger.error(f'Mode not supported: {self.mode}')
             filelist = None
 
         # Log the number of files selected
@@ -120,15 +121,19 @@ class BlearnDataset(Dataset):
         depth = self.get_depth(index)
         depth_prior = self.get_depth_prior(index, image_cv.copy(), depth)
 
-        sample = self.transform({'image': image, 'depth': depth, 'depth_prior': depth_prior})
+        if depth is not None:
+            sample = self.transform({'image': image, 'depth': depth, 'depth_prior': depth_prior})
+            sample['depth'] = torch.from_numpy(sample['depth'])
+            sample['depth'] = torch.nan_to_num(sample['depth'], nan=0.0)
+            sample['valid_mask'] = ((sample['depth'] > self.depth_min) & (sample['depth'] <= self.depth_max))
+        else:
+            sample = self.transform({'image': image, 'depth_prior': depth_prior})
+
         sample['image'] = torch.from_numpy(sample['image'])
-        sample['depth'] = torch.from_numpy(sample['depth'])
-        sample['depth'] = torch.nan_to_num(sample['depth'], nan=0.0)
 
         sample['depth_prior'] = torch.from_numpy(sample['depth_prior'])
         sample['depth_prior'] = torch.nan_to_num(sample['depth_prior'], nan=0.0)
 
-        sample['valid_mask'] = ((sample['depth'] > self.depth_min) & (sample['depth'] <= self.depth_max))
         sample['image_path'] = str(img_path)
 
         return sample
@@ -230,7 +235,8 @@ class BlearnDataset(Dataset):
     def get_depth_prior(self, index, img_copy, depth):
         if self.depth_prior_dir.is_dir():
             depth_prior = np.load(str(self.depth_prior_dir / self.depth_prior_template.format(index))).astype(np.float32)
-            if depth_prior.max() <= 1.0:
+            # TODO: Better detecting if dataset is normalized or not
+            if depth_prior.max() <= 0.01:
                 depth_prior_valid_mask = (depth_prior > 0.0) & (depth_prior <= 1.0)
                 depth_prior[depth_prior_valid_mask] *= self.depth_range + self.depth_min
 

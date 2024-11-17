@@ -15,6 +15,8 @@ from pathlib import Path
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
+import matplotlib.pyplot as plt
+
 logger = logging.getLogger(__name__)
 
 class Interface:
@@ -87,6 +89,8 @@ class Interface:
             self.model = get_model(pretrained_from, self.use_depth_prior, self.encoder, self.max_depth, output_channels=self.output_channels)
             self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
             self.model.to(self.device)
+        else:
+            logger.error(f"One or multiple undefined: {self.encoder}, {self.max_depth}, {self.output_channels}, {self.use_depth_prior}")
 
         return self.model
 
@@ -138,6 +142,9 @@ class Interface:
 
         return loader, dataset
 
+    def get_single_dataset_loader(self, dataset_dir, min_index=0, max_index=-1):
+        dataset = BlearnDataset(dataset_dir, 'all', self.size, min_index, max_index)
+        return DataLoader(dataset, batch_size=self.batch_size, pin_memory=True, drop_last=True)
 
     def update_best_result(self, results, nsamples):
         if nsamples:
@@ -155,18 +162,23 @@ class Interface:
 
     def prepare_sample(self, sample, random_flip=False):
         image = sample['image'].to(self.device)
-        depth_target = sample['depth'].to(self.device)
+
         depth_prior = sample['depth_prior'].to(self.device)
-        valid_mask = sample['valid_mask'].to(self.device)
-
-        mask = (valid_mask == 1) & (depth_target >= self.min_depth) & (depth_target <= self.max_depth)
-
         if self.use_depth_prior:
             depth_prior = depth_prior.unsqueeze(1)
             image = torch.cat((image, depth_prior), axis=1)
 
-        if random_flip:
-            image, depth_target, valid_mask = randomly_flip(image, depth_target, mask)
+        if 'depth' in sample.keys() and 'valid_mask' in sample.keys():
+            depth_target = sample['depth'].to(self.device)
+            valid_mask = sample['valid_mask'].to(self.device)
+            mask = (valid_mask == 1) & (depth_target >= self.min_depth) & (depth_target <= self.max_depth)
+
+            if random_flip:
+                image, depth_target, mask = randomly_flip(image, depth_target, mask)
+
+        else:
+            depth_target, mask = None, None
+
 
         return image, depth_prior, depth_target, mask
 
@@ -200,26 +212,69 @@ class Interface:
                 logger.info('Iter: {}/{}, LR: {:.7f}, Loss: {:.3f}'.format(i, len(train_loader), self.optimizer.param_groups[0]['lr'], total_loss/(i + 1.0)))
 
 
-    def validate_epoch(self, epoch, val_loader):
+    def validate_epoch(self, epoch, val_loader, save_outputs=False):
         self.model.eval()
+        count = 0
+        avg_distances = []
+        max_len = 200
 
         self.results, self.results_per_sample, nsamples = get_empty_results(self.device)
         for i, sample in enumerate(val_loader):
             image, _, depth_target, mask = self.prepare_sample(sample, random_flip=False)
 
             # TODO: Maybe not hardcode 10 here?
-            if mask.sum() > 10:
+            if mask is None or mask.sum() > 10:
                 with torch.no_grad():
                     prediction = self.model(image)
                     prediction = interpolate_shape(prediction, depth_target)
                     depth_prediction = get_depth_from_prediction(prediction, image)
 
-                    current_results = eval_depth(depth_prediction[mask], depth_target[mask])
-                    if current_results is not None:
-                        for k in self.results.keys():
-                            self.results[k] += current_results[k]
-                            self.results_per_sample[k].append(current_results[k])
-                        nsamples += 1
+                    if save_outputs:
+                        # Calculate average depth for line plot
+                        avg_depth = depth_prediction[mask].mean().item() if mask is not None else depth_prediction.mean().item()
+                        avg_distances.append(avg_depth)
+
+                        # Keep only the last `max_len` values for the line plot
+                        if len(avg_distances) > max_len:
+                            avg_distances = avg_distances[-max_len:]
+
+                        # Convert tensors to numpy arrays for plotting
+                        depth_pred_np = depth_prediction.cpu().numpy().squeeze()
+                        image_np = image.cpu().numpy().squeeze().transpose(1, 2, 0)
+                        image_np = image_np[:, :, :3]
+
+                        # Create the 2x2 plot
+                        fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+                        axs[0, 0].imshow(depth_pred_np, cmap='viridis')
+                        axs[0, 0].set_title('Depth Prediction')
+                        axs[0, 0].axis('off')
+
+                        axs[0, 1].imshow(image_np)
+                        axs[0, 1].set_title('Input Image')
+                        axs[0, 1].axis('off')
+
+                        axs[1, 0].plot(avg_distances, color='blue')
+                        axs[1, 0].set_title('Average Depth Over Time')
+                        axs[1, 0].grid()
+                        axs[1, 0].set_xlim(0, max_len)
+
+                        axs[1, 1].axis('off')  # Leave this subplot blank
+
+                        # Save the plot
+                        save_path = f"/home/asl/Downloads/case_4_data/tmp/frame_{count:04d}.png"
+                        plt.tight_layout()
+                        plt.savefig(save_path)
+                        plt.close(fig)
+
+                        count += 1
+
+                    if mask is not None:
+                        current_results = eval_depth(depth_prediction[mask], depth_target[mask])
+                        if current_results is not None:
+                            for k in self.results.keys():
+                                self.results[k] += current_results[k]
+                                self.results_per_sample[k].append(current_results[k])
+                            nsamples += 1
 
                 if i % 10 == 0:
                     abs_rel = (self.results["abs_rel"]/nsamples).item()
