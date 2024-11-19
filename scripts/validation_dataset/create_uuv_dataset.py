@@ -1,15 +1,10 @@
 import argparse
 import cv2
-import laspy
 import logging
 import matplotlib.pyplot as plt
-import multiprocessing as mp
 import numpy as np
-import pickle
-import re
+import pandas as pd
 import rosbag
-import scipy.ndimage as ndi
-import sensor_msgs.point_cloud2 as pc2
 
 from pathlib import Path
 from cv_bridge import CvBridge
@@ -36,49 +31,62 @@ class UUVDataset:
         depth_dir.mkdir(exist_ok=True)
         depth_prior_dir = output_dir / 'depth_prior'
         depth_prior_dir.mkdir(exist_ok=True)
-        target_width = 640
-        target_height = 480
+        self.target_width = 640
+        self.target_height = 480
+        self.fft_dir = output_dir / 'fft_data'
 
         topics = ['/ted/image', '/navigation/plane_approximation', '/sensor/dvl_position']
         image_count = 0
-        depth_priors = None
         bridge = CvBridge()
-        radius_prior_pixel = 5
 
         with rosbag.Bag(self.bag_file, 'r') as bag:
             for i, (topic, msg, t) in enumerate(bag.read_messages(topics=topics)):
-                if topic == '/navigation/plane_approximation':
-                    depth_priors = [msg.NetDistance]
-
-                elif topic == '/ted/image' and depth_priors is not None:
-                    # RGB image
-                    img = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-                    flipped_image = cv2.flip(img, 0)
-                    height, width, _ = flipped_image.shape
-                    width = width //2
-                    right_image = flipped_image[:, width:, :]
-                    right_image_resized = cv2.resize(right_image, (target_width, target_height))
-
-                    img_file = rgb_dir / f'{image_count:05d}_rgb.jpg'
-                    cv2.imwrite(str(img_file), right_image_resized)
-
-                    # Also save the full image (with just the number)
-                    img_file_full = rgb_full_dir / f'{image_count:05d}.jpg'
-                    cv2.imwrite(str(img_file_full), right_image)
-
+                if topic == '/ted/image':
                     # Depth prior
-                    depth_prior = np.zeros((target_width, target_height), dtype=np.float32)
-                    circular_mask = self.create_circular_mask(2 * target_width, 2 * target_height, radius=radius_prior_pixel)
-                    x, y = target_width // 2, target_height // 2
-                    translated_mask = circular_mask[int(target_width - x):int(2 * target_width - x), int(target_height - y):int(2 * target_height - y)]
-                    depth_prior += depth_priors[0] * translated_mask
-                    depth_prior = depth_prior.T
+                    depth_prior = self.get_fft_depth_prior(image_count)
+                    if depth_prior is not None:
+                        # RGB image
+                        img = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+                        flipped_image = cv2.flip(img, 0)
+                        _, width, _ = flipped_image.shape
+                        width = width //2
+                        right_image = flipped_image[:, width:, :]
+                        right_image_resized = cv2.resize(right_image, (self.target_width, self.target_height))
 
-                    depth_prior_file = output_dir / 'depth_prior' / f'{image_count:05d}_ra.npy'
-                    np.save(depth_prior_file, depth_prior)
-                    plt.imsave(output_dir / 'depth_prior' / f'{image_count:05d}_ra.jpg', depth_prior, vmin=0,vmax=15)
+                        img_file = rgb_dir / f'{image_count:05d}_rgb.jpg'
+                        cv2.imwrite(str(img_file), right_image_resized)
 
-                    image_count += 1
+                        # Also save the full image (with just the number, no leading zeros)
+                        img_file_full = rgb_full_dir / f'{image_count}.jpg'
+                        cv2.imwrite(str(img_file_full), right_image)
+
+                        depth_prior_file = output_dir / 'depth_prior' / f'{image_count:05d}_ra.npy'
+                        np.save(depth_prior_file, depth_prior)
+                        plt.imsave(output_dir / 'depth_prior' / f'{image_count:05d}_ra.jpg', depth_prior, vmin=0,vmax=15)
+                        image_count += 1
+
+
+    def get_fft_depth_prior(self, image_count):
+        radius_prior_pixel = 5
+        fft_csv_file = self.fft_dir / f'{image_count}_features.csv'
+        depth_prior = np.zeros((self.target_width, self.target_height), dtype=np.float32)
+        circular_mask = self.create_circular_mask(2 * self.target_width, 2 * self.target_height, radius=radius_prior_pixel)
+
+        try:
+            data = pd.read_csv(fft_csv_file, header=None, names=['x', 'y', 'z'])  # Assuming no headers in the CSV
+        except Exception as e:
+            print(f"Error reading CSV file: {e}")
+            return None
+
+        # Process each point
+        for _, row in data.iterrows():
+            y, x, z = int(row['x']), int(row['y']), float(row['z'])
+            translated_mask = circular_mask[int(self.target_width - x):int(2 * self.target_width - x), int(self.target_height - y):int(2 * self.target_height - y)]
+            depth_prior += z * translated_mask
+
+        depth_prior = depth_prior.T
+        return depth_prior
+
 
     def create_circular_mask(self, h, w, center=None, radius=None):
         # From:

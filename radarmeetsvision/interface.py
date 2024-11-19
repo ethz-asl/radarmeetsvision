@@ -15,8 +15,6 @@ from pathlib import Path
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
-import matplotlib.pyplot as plt
-
 logger = logging.getLogger(__name__)
 
 class Interface:
