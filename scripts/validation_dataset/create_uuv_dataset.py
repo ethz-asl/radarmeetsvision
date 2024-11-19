@@ -29,7 +29,9 @@ class UUVDataset:
         output_dir = Path(self.bag_file).parent / 'output'
         output_dir.mkdir(exist_ok=True)
         rgb_dir = output_dir / 'rgb'
+        rgb_full_dir = output_dir / 'rgb_full'
         rgb_dir.mkdir(exist_ok=True)
+        rgb_full_dir.mkdir(exist_ok=True)
         depth_dir = output_dir / 'depth'
         depth_dir.mkdir(exist_ok=True)
         depth_prior_dir = output_dir / 'depth_prior'
@@ -59,6 +61,10 @@ class UUVDataset:
 
                     img_file = rgb_dir / f'{image_count:05d}_rgb.jpg'
                     cv2.imwrite(str(img_file), right_image_resized)
+
+                    # Also save the full image (with just the number)
+                    img_file_full = rgb_full_dir / f'{image_count:05d}.jpg'
+                    cv2.imwrite(str(img_file_full), right_image)
 
                     # Depth prior
                     depth_prior = np.zeros((target_width, target_height), dtype=np.float32)

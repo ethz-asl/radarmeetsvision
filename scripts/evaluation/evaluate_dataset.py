@@ -36,7 +36,7 @@ def main():
     interface.set_batch_size(1)
     interface.set_criterion()
 
-    loader = interface.get_single_dataset_loader(args.dataset)
+    loader = interface.get_single_dataset_loader(args.dataset, min_index=0, max_index=-1)
     interface.validate_epoch(0, loader, save_outputs=True)
 
 

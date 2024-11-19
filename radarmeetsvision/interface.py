@@ -214,9 +214,6 @@ class Interface:
 
     def validate_epoch(self, epoch, val_loader, save_outputs=False):
         self.model.eval()
-        count = 0
-        avg_distances = []
-        max_len = 200
 
         self.results, self.results_per_sample, nsamples = get_empty_results(self.device)
         for i, sample in enumerate(val_loader):
@@ -228,45 +225,6 @@ class Interface:
                     prediction = self.model(image)
                     prediction = interpolate_shape(prediction, depth_target)
                     depth_prediction = get_depth_from_prediction(prediction, image)
-
-                    if save_outputs:
-                        # Calculate average depth for line plot
-                        avg_depth = depth_prediction[mask].mean().item() if mask is not None else depth_prediction.mean().item()
-                        avg_distances.append(avg_depth)
-
-                        # Keep only the last `max_len` values for the line plot
-                        if len(avg_distances) > max_len:
-                            avg_distances = avg_distances[-max_len:]
-
-                        # Convert tensors to numpy arrays for plotting
-                        depth_pred_np = depth_prediction.cpu().numpy().squeeze()
-                        image_np = image.cpu().numpy().squeeze().transpose(1, 2, 0)
-                        image_np = image_np[:, :, :3]
-
-                        # Create the 2x2 plot
-                        fig, axs = plt.subplots(2, 2, figsize=(10, 10))
-                        axs[0, 0].imshow(depth_pred_np, cmap='viridis')
-                        axs[0, 0].set_title('Depth Prediction')
-                        axs[0, 0].axis('off')
-
-                        axs[0, 1].imshow(image_np)
-                        axs[0, 1].set_title('Input Image')
-                        axs[0, 1].axis('off')
-
-                        axs[1, 0].plot(avg_distances, color='blue')
-                        axs[1, 0].set_title('Average Depth Over Time')
-                        axs[1, 0].grid()
-                        axs[1, 0].set_xlim(0, max_len)
-
-                        axs[1, 1].axis('off')  # Leave this subplot blank
-
-                        # Save the plot
-                        save_path = f"/home/asl/Downloads/case_4_data/tmp/frame_{count:04d}.png"
-                        plt.tight_layout()
-                        plt.savefig(save_path)
-                        plt.close(fig)
-
-                        count += 1
 
                     if mask is not None:
                         current_results = eval_depth(depth_prediction[mask], depth_target[mask])

@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/pytorch:24.10-py3
+FROM nvcr.io/nvidia/pytorch:23.04-py3
 
 ARG FLIRIMAGING_GID=1001
 ARG TZ=Europe/Zurich

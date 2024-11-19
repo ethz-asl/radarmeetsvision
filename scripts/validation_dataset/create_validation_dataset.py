@@ -173,7 +173,6 @@ class ValidationDataset:
                     radar_depth = radar_depth[inside_image_mask]
                     points_snr = points_snr[inside_image_mask]
 
-
                     depth_prior = np.zeros((width, height), dtype=np.float32)
                     snr_prior = np.zeros((width, height), dtype=np.float32)
 
