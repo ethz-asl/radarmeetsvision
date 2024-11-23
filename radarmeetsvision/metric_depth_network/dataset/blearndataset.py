@@ -18,12 +18,12 @@ from torch.utils.data import Dataset
 from torchvision.transforms import Compose
 from scipy.spatial import cKDTree
 
-from .transform import Resize, PrepareForNet, Crop
+from .transform import Resize, PrepareForNet, Crop, NormalizeImage
 
 logger = logging.getLogger(__name__)
 
 class BlearnDataset(Dataset):
-    def __init__(self, dataset_dir, mode, size, index_min=0, index_max=-1):
+    def __init__(self, dataset_dir, mode, size, index_min=0, index_max=-1, depth_prior_dir=None):
         self.mode = mode
         self.size = size
 
@@ -37,7 +37,7 @@ class BlearnDataset(Dataset):
                 resize_method='lower_bound',
                 image_interpolation_method=cv2.INTER_CUBIC,
             ),
-            # TODO: Think if we want to add this here, again, evaluate, where do these numbers come from?
+            # TODO: Check these numbers again
             # NormalizeImage(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             PrepareForNet(),
         ] + ([Crop(size[0])] if 'train' in self.mode else []))
@@ -59,6 +59,9 @@ class BlearnDataset(Dataset):
         self.depth_min, self.depth_max, self.depth_range = self.get_depth_range()
 
         self.depth_prior_dir = self.dir / "depth_prior"
+        if depth_prior_dir is not None:
+            self.depth_prior_dir = depth_prior_dir
+
         self.depth_prior_template = "{:05d}_ra.npy"
 
         self.height = size[0]
@@ -228,7 +231,7 @@ class BlearnDataset(Dataset):
                 logger.info(f'Found norm range {norm_range:.3f} m')
 
         else:
-            logger.error(f"Could not find: {depth_norm_file}")
+            logger.warning(f"Could not find: {depth_norm_file}")
 
         return norm_min, norm_max, norm_range
 
@@ -236,7 +239,7 @@ class BlearnDataset(Dataset):
         if self.depth_prior_dir.is_dir():
             depth_prior = np.load(str(self.depth_prior_dir / self.depth_prior_template.format(index))).astype(np.float32)
             # TODO: Better detecting if dataset is normalized or not
-            if depth_prior.max() <= 0.01:
+            if not (depth_prior > 0.0).any() and self.depth_min is not None and self.depth_range is not None:
                 depth_prior_valid_mask = (depth_prior > 0.0) & (depth_prior <= 1.0)
                 depth_prior[depth_prior_valid_mask] *= self.depth_range + self.depth_min
 

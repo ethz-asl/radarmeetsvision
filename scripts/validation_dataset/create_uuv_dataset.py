@@ -6,16 +6,17 @@ import numpy as np
 import pandas as pd
 import rosbag
 
-from pathlib import Path
 from cv_bridge import CvBridge
-from scipy.spatial.transform import Rotation
-from scipy.spatial import cKDTree
+from pathlib import Path
+from scipy.spatial.distance import cdist
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("dataset")
 
 class UUVDataset:
-    def __init__(self, input_dir):
+    def __init__(self, input_dir, max_priors):
+        self.max_priors = max_priors
         for file_path in input_dir.iterdir():
             if '.bag' in str(file_path):
                 self.bag_file = file_path
@@ -43,7 +44,7 @@ class UUVDataset:
             for i, (topic, msg, t) in enumerate(bag.read_messages(topics=topics)):
                 if topic == '/ted/image':
                     # Depth prior
-                    depth_prior = self.get_fft_depth_prior(image_count)
+                    depth_prior = self.get_fft_depth_prior(image_count, max_priors=self.max_priors)
                     if depth_prior is not None:
                         # RGB image
                         img = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
@@ -66,7 +67,7 @@ class UUVDataset:
                         image_count += 1
 
 
-    def get_fft_depth_prior(self, image_count):
+    def get_fft_depth_prior(self, image_count, max_priors=None):
         radius_prior_pixel = 5
         fft_csv_file = self.fft_dir / f'{image_count}_features.csv'
         depth_prior = np.zeros((self.target_width, self.target_height), dtype=np.float32)
@@ -78,14 +79,40 @@ class UUVDataset:
             print(f"Error reading CSV file: {e}")
             return None
 
-        # Process each point
+        if max_priors is not None and len(data) > max_priors:
+            points = data[['x', 'y']].values  # Extract coordinates as (x, y)
+            if max_priors == 1:
+                # Select the most central point (closest to centroid)
+                centroid = points.mean(axis=0)
+                distances_to_centroid = np.linalg.norm(points - centroid, axis=1)
+                central_index = np.argmin(distances_to_centroid)
+                selected_indices = [central_index]
+            else:
+                # Select max_priors points that maximize distances
+                selected_indices = [0]  # Start with the first point
+                for _ in range(1, max_priors):
+                    remaining_indices = list(set(range(len(points))) - set(selected_indices))
+                    remaining_points = points[remaining_indices]
+                    selected_points = points[selected_indices]
+                    distances = cdist(remaining_points, selected_points, metric='euclidean')
+                    min_distances = distances.min(axis=1)
+                    next_index = remaining_indices[np.argmax(min_distances)]
+                    selected_indices.append(next_index)
+
+            data = data.iloc[selected_indices]  # Keep only the selected rows
+
+        # Process each selected point
         for _, row in data.iterrows():
             y, x, z = int(row['x']), int(row['y']), float(row['z'])
-            translated_mask = circular_mask[int(self.target_width - x):int(2 * self.target_width - x), int(self.target_height - y):int(2 * self.target_height - y)]
+            translated_mask = circular_mask[
+                int(self.target_width - x):int(2 * self.target_width - x),
+                int(self.target_height - y):int(2 * self.target_height - y)
+            ]
             depth_prior += z * translated_mask
 
         depth_prior = depth_prior.T
         return depth_prior
+
 
 
     def create_circular_mask(self, h, w, center=None, radius=None):
@@ -106,7 +133,8 @@ class UUVDataset:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Process the camera parameters, offset, and point cloud files.')
     parser.add_argument('input_dir', type=Path, help='Path to folder containing all required files')
+    parser.add_argument('max_priors', type=int, default=None)
 
     args = parser.parse_args()
-    dataset = UUVDataset(args.input_dir)
+    dataset = UUVDataset(args.input_dir, args.max_priors)
     dataset.generate()
