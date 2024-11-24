@@ -36,35 +36,65 @@ class UUVDataset:
         self.target_height = 480
         self.fft_dir = output_dir / 'fft_data'
 
-        topics = ['/ted/image', '/navigation/plane_approximation', '/sensor/dvl_position']
+        topics = ['/ted/image', '/navigation/plane_approximation', '/sensor/dvl_position', '/bluerov2/image']
         image_count = 0
         bridge = CvBridge()
 
+        net_distance_file = output_dir / 'net_distances.txt'
+        prior_distances_file = output_dir / f'prior_distances_{self.max_priors}.txt'
+        net_distances = []
+        prior_distances = []
+        last_net_distance = 0.0
+
         with rosbag.Bag(self.bag_file, 'r') as bag:
             for i, (topic, msg, t) in enumerate(bag.read_messages(topics=topics)):
-                if topic == '/ted/image':
+                if topic == '/bluerov2/image': #'/ted/image':
                     # Depth prior
                     depth_prior = self.get_fft_depth_prior(image_count, max_priors=self.max_priors)
                     if depth_prior is not None:
                         # RGB image
                         img = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
                         flipped_image = cv2.flip(img, 0)
-                        _, width, _ = flipped_image.shape
-                        width = width //2
-                        right_image = flipped_image[:, width:, :]
-                        right_image_resized = cv2.resize(right_image, (self.target_width, self.target_height))
+                        if 'ted' in topic:
+                            _, width, _ = flipped_image.shape
+                            width = width //2
+                            image = flipped_image[:, width:, :]
+                        else:
+                            flipped_image = cv2.rotate(flipped_image, cv2.ROTATE_180)
+                            image = flipped_image
+
+                        image_resized = cv2.resize(image, (self.target_width, self.target_height))
 
                         img_file = rgb_dir / f'{image_count:05d}_rgb.jpg'
-                        cv2.imwrite(str(img_file), right_image_resized)
+                        cv2.imwrite(str(img_file), image_resized)
 
                         # Also save the full image (with just the number, no leading zeros)
                         img_file_full = rgb_full_dir / f'{image_count}.jpg'
-                        cv2.imwrite(str(img_file_full), right_image)
+                        cv2.imwrite(str(img_file_full), image)
 
                         depth_prior_file = output_dir / 'depth_prior' / f'{image_count:05d}_ra.npy'
                         np.save(depth_prior_file, depth_prior)
                         plt.imsave(output_dir / 'depth_prior' / f'{image_count:05d}_ra.jpg', depth_prior, vmin=0,vmax=15)
                         image_count += 1
+
+                        net_distances.append(last_net_distance)
+                        prior_mean = depth_prior[depth_prior > 0.0]
+                        if len(prior_mean):
+                            prior_distances.append(prior_mean.mean())
+                        else:
+                            prior_distances.append(np.nan)
+
+                elif topic == '/navigation/plane_approximation':
+                    last_net_distance = msg.NetDistance
+
+
+        with net_distance_file.open('w') as f:
+            for i, d in enumerate(net_distances):
+                f.write(f'{i}: {d}\n')
+
+        with prior_distances_file.open('w') as f:
+            for i, d in enumerate(prior_distances):
+                f.write(f'{i}: {d}\n')
 
 
     def get_fft_depth_prior(self, image_count, max_priors=None):
@@ -103,10 +133,10 @@ class UUVDataset:
 
         # Process each selected point
         for _, row in data.iterrows():
-            y, x, z = int(row['x']), int(row['y']), float(row['z'])
+            v, u, z = int(row['x']), int(row['y']), float(row['z'])
             translated_mask = circular_mask[
-                int(self.target_width - x):int(2 * self.target_width - x),
-                int(self.target_height - y):int(2 * self.target_height - y)
+                int(self.target_width - u):int(2 * self.target_width - u),
+                int(self.target_height - v):int(2 * self.target_height - v)
             ]
             depth_prior += z * translated_mask
 
