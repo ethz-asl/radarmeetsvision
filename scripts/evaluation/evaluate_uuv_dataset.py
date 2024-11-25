@@ -47,8 +47,8 @@ def main():
     interface.set_batch_size(1)
     interface.set_criterion()
 
-    depth_prior_base = Path('/home/asl/Downloads/case_4_data/output/depth_prior')
-    depth_prior_dirs = ['1', '2', '3', '4', '5', 'all']
+    depth_prior_base = Path('/home/asl/Downloads/rosbags/case_38/output/depth_prior')
+    depth_prior_dirs = ['5']
     output_dir = Path(args.dataset) / 'predictions'
     uuv_result = UUVResult()
     for depth_prior_dir in depth_prior_dirs:

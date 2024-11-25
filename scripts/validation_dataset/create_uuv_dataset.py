@@ -9,7 +9,7 @@ import rosbag
 from cv_bridge import CvBridge
 from pathlib import Path
 from scipy.spatial.distance import cdist
-
+from sensor_msgs.msg import Image, CompressedImage
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("dataset")
@@ -17,9 +17,15 @@ logger = logging.getLogger("dataset")
 class UUVDataset:
     def __init__(self, input_dir, max_priors):
         self.max_priors = max_priors
+        self.data_bag_file = None
         for file_path in input_dir.iterdir():
             if '.bag' in str(file_path):
-                self.bag_file = file_path
+                if not 'data' in str(file_path):
+                    self.bag_file = file_path
+
+                else:
+                    print(f"Found data bag file: {file_path}")
+                    self.data_bag_file = file_path
 
     def generate(self):
         output_dir = Path(self.bag_file).parent / 'output'
@@ -45,19 +51,42 @@ class UUVDataset:
         net_distances = []
         prior_distances = []
         last_net_distance = 0.0
+        dvl_msgs = []
+
+        # NOTE: This is for the case of two separate bag files
+        if self.data_bag_file is not None:
+            with rosbag.Bag(self.data_bag_file, 'r') as bag:
+                for i, (topic, msg, t) in enumerate(bag.read_messages(topics=['/navigation/plane_approximation'])):
+                    if topic == '/navigation/plane_approximation':
+                        dvl_msgs.append((t, msg.NetDistance))
 
         with rosbag.Bag(self.bag_file, 'r') as bag:
             for i, (topic, msg, t) in enumerate(bag.read_messages(topics=topics)):
-                if topic == '/bluerov2/image': #'/ted/image':
-                    # Depth prior
-                    depth_prior = self.get_fft_depth_prior(image_count, max_priors=self.max_priors)
-                    if depth_prior is not None:
-                        # RGB image
-                        img = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+                if topic == '/ted/image':
+                    if len(dvl_msgs):
+                        # This means we have two separate bags, try to query for
+                        dvl_msg = self.find_zoh_message(dvl_msgs, t)
+                        if dvl_msg is not None:
+                            last_net_distance = dvl_msg[1]
+
+                    net_distances.append(last_net_distance)
+
+                    depth_prior = None
+                    if self.max_priors is not None:
+                        depth_prior = self.get_fft_depth_prior(image_count, max_priors=self.max_priors, last_dvl_distance=last_net_distance)
+
+                    if depth_prior is not None or self.max_priors is None:
+                        # Check if the image is compressed or not
+                        try:
+                            img = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+                        except Exception as e:
+                            np_arr = np.frombuffer(msg.data, np.uint8)
+                            img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
                         flipped_image = cv2.flip(img, 0)
                         if 'ted' in topic:
                             _, width, _ = flipped_image.shape
-                            width = width //2
+                            width = width // 2
                             image = flipped_image[:, width:, :]
                         else:
                             flipped_image = cv2.rotate(flipped_image, cv2.ROTATE_180)
@@ -72,21 +101,21 @@ class UUVDataset:
                         img_file_full = rgb_full_dir / f'{image_count}.jpg'
                         cv2.imwrite(str(img_file_full), image)
 
-                        depth_prior_file = output_dir / 'depth_prior' / f'{image_count:05d}_ra.npy'
-                        np.save(depth_prior_file, depth_prior)
-                        plt.imsave(output_dir / 'depth_prior' / f'{image_count:05d}_ra.jpg', depth_prior, vmin=0,vmax=15)
-                        image_count += 1
+                        if depth_prior is not None:
+                            depth_prior_file = output_dir / 'depth_prior' / f'{image_count:05d}_ra.npy'
+                            np.save(depth_prior_file, depth_prior)
+                            plt.imsave(output_dir / 'depth_prior' / f'{image_count:05d}_ra.jpg', depth_prior, vmin=0, vmax=15)
 
-                        net_distances.append(last_net_distance)
-                        prior_mean = depth_prior[depth_prior > 0.0]
-                        if len(prior_mean):
-                            prior_distances.append(prior_mean.mean())
-                        else:
-                            prior_distances.append(np.nan)
+                            prior_mean = depth_prior[depth_prior > 0.0]
+                            if len(prior_mean):
+                                prior_distances.append(prior_mean.mean())
+                            else:
+                                prior_distances.append(np.nan)
+
+                        image_count += 1
 
                 elif topic == '/navigation/plane_approximation':
                     last_net_distance = msg.NetDistance
-
 
         with net_distance_file.open('w') as f:
             for i, d in enumerate(net_distances):
@@ -96,8 +125,34 @@ class UUVDataset:
             for i, d in enumerate(prior_distances):
                 f.write(f'{i}: {d}\n')
 
+    def find_zoh_message(self, msgs, query_time):
+        """
+        Find the zero-order hold message given a query time.
 
-    def get_fft_depth_prior(self, image_count, max_priors=None):
+        Args:
+            msgs (list of tuple): List of (rospy.Time, message) tuples sorted by rospy.Time.
+            query_time (rospy.Time): The time for which the ZOH message is required.
+
+        Returns:
+            message: The message corresponding to the ZOH.
+        """
+        # Binary search for the closest timestamp <= query_time
+        left, right = 0, len(msgs) - 1
+        best_match = None
+
+        while left <= right:
+            mid = (left + right) // 2
+            msg_time, msg = msgs[mid]
+
+            if msg_time <= query_time:
+                best_match = (msg_time, msg)
+                left = mid + 1
+            else:
+                right = mid - 1
+
+        return best_match
+
+    def get_fft_depth_prior(self, image_count, max_priors=None, last_dvl_distance=None):
         radius_prior_pixel = 5
         fft_csv_file = self.fft_dir / f'{image_count}_features.csv'
         depth_prior = np.zeros((self.target_width, self.target_height), dtype=np.float32)
@@ -132,13 +187,26 @@ class UUVDataset:
             data = data.iloc[selected_indices]  # Keep only the selected rows
 
         # Process each selected point
-        for _, row in data.iterrows():
-            v, u, z = int(row['x']), int(row['y']), float(row['z'])
+        if len(data):
+            for _, row in data.iterrows():
+                v, u, z = int(row['x']), int(row['y']), float(row['z'])
+                translated_mask = circular_mask[
+                    int(self.target_width - u):int(2 * self.target_width - u),
+                    int(self.target_height - v):int(2 * self.target_height - v)
+                ]
+                depth_prior += z * translated_mask
+        else:
+            # NOTE: Add the DVL as a fallback mechanism
+            # NOTE: This is a very crude calibration, but probably good enough for this
+            IMU_TO_STEREO_DEPTH_CALIB = -0.06
+
+            u = self.target_width // 2
+            v = self.target_height // 2
             translated_mask = circular_mask[
                 int(self.target_width - u):int(2 * self.target_width - u),
                 int(self.target_height - v):int(2 * self.target_height - v)
             ]
-            depth_prior += z * translated_mask
+            depth_prior += (last_dvl_distance + IMU_TO_STEREO_DEPTH_CALIB) * translated_mask
 
         depth_prior = depth_prior.T
         return depth_prior
@@ -163,7 +231,7 @@ class UUVDataset:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Process the camera parameters, offset, and point cloud files.')
     parser.add_argument('input_dir', type=Path, help='Path to folder containing all required files')
-    parser.add_argument('max_priors', type=int, default=None)
+    parser.add_argument('--max_priors', type=int, default=None)
 
     args = parser.parse_args()
     dataset = UUVDataset(args.input_dir, args.max_priors)

@@ -22,13 +22,13 @@ mpl.rcParams['ytick.labelsize'] = 8
 mpl.rcParams['text.usetex'] = True
 mpl.rcParams['font.family'] = 'serif'
 
-WINDOW_SIZE = 2
+WINDOW_SIZE = 10
 
 def process_npy_files(top_directory):
     folder_averages = {}  # To store averages for each folder
 
     # Try to load the dvl net distance
-    dvl_net_file = Path(top_directory) / 'net_distances.txt'
+    dvl_net_file = Path(top_directory) / '..' / 'net_distances.txt'
     if dvl_net_file.is_file():
         dvl_lines = []
         with dvl_net_file.open('r') as f:
@@ -41,10 +41,10 @@ def process_npy_files(top_directory):
             if out is not None:
                 distances.append(float(out.group(1)))
 
-    folder_averages['DVL net distance'] = distances
+    folder_averages['DVL distance [m]'] = distances
 
     # Try to load prior distance
-    prior_file = Path(top_directory) / 'prior_distances_3.txt'
+    prior_file = Path(top_directory) / '..' / 'prior_distances_5.txt'
     if prior_file.is_file():
         prior_lines = []
         with prior_file.open('r') as f:
@@ -59,7 +59,7 @@ def process_npy_files(top_directory):
             else:
                 distances.append(0.0)
 
-        # folder_averages['Prior 3 distances'] = distances
+        folder_averages['Avg. FFT Prior [m]'] = distances
 
     # Iterate through all folders in the top-level directory
     for folder_name in sorted(os.listdir(top_directory)):
@@ -104,7 +104,8 @@ def process_npy_files(top_directory):
                         center_field = matrix[start_x:end_x, start_y:end_y]
 
                         # Compute the average
-                        avg_value = np.mean(center_field)
+                        STEREO_TO_IMU_DEPTH_CALIB = 0.06
+                        avg_value = np.mean(center_field) + STEREO_TO_IMU_DEPTH_CALIB
 
                         # Append the result as (index, average value)
                         averages.append((int(file_name[:-4]), avg_value))
@@ -128,7 +129,7 @@ def process_npy_files(top_directory):
 
     return folder_averages
 
-def low_pass_filter(data, cutoff=0.05, order=2):
+def low_pass_filter(data, cutoff=0.025, order=2):
     """
     Apply a low-pass Butterworth filter to the data.
     
@@ -171,7 +172,7 @@ def plot_averages(folder_averages):
     # Add details to the original averages plot
     axs[0].set_xlabel("Index [-]")
     axs[0].set_ylabel("Average Depth [m]")
-    axs[0].set_xlim(400, 3500)
+    # axs[0].set_xlim(400, 3500)
     axs[0].set_ylim(0, 3.0)
     axs[0].legend(loc="best")
     axs[0].grid(True)
@@ -179,7 +180,7 @@ def plot_averages(folder_averages):
     # Add details to the filtered averages plot
     axs[1].set_xlabel("Index [-]")
     axs[1].set_ylabel("LP Average Depth [m]")
-    axs[1].set_xlim(400, 3500)
+    # axs[1].set_xlim(400, 3500)
     axs[1].set_ylim(0, 3.0)
     axs[1].legend(loc="best")
     axs[1].grid(True)
