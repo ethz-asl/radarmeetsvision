@@ -42,14 +42,16 @@ class UUVDataset:
         self.target_height = 480
         self.fft_dir = output_dir / 'fft_data'
 
-        topics = ['/ted/image', '/navigation/plane_approximation', '/sensor/dvl_position', '/bluerov2/image']
+        topics = ['/ted/image', '/navigation/plane_approximation', '/sensor/dvl_position']
         image_count = 0
         bridge = CvBridge()
 
         net_distance_file = output_dir / 'net_distances.txt'
         prior_distances_file = output_dir / f'prior_distances_{self.max_priors}.txt'
+        timestamps_file = output_dir / f'timestamps.txt'
         net_distances = []
         prior_distances = []
+        timestamps = []
         last_net_distance = 0.0
         dvl_msgs = []
 
@@ -112,6 +114,7 @@ class UUVDataset:
                             else:
                                 prior_distances.append(np.nan)
 
+                        timestamps.append(t)
                         image_count += 1
 
                 elif topic == '/navigation/plane_approximation':
@@ -123,6 +126,10 @@ class UUVDataset:
 
         with prior_distances_file.open('w') as f:
             for i, d in enumerate(prior_distances):
+                f.write(f'{i}: {d}\n')
+
+        with timestamps_file.open('w') as f:
+            for i, d in enumerate(timestamps):
                 f.write(f'{i}: {d}\n')
 
     def find_zoh_message(self, msgs, query_time):
@@ -159,19 +166,23 @@ class UUVDataset:
         circular_mask = self.create_circular_mask(2 * self.target_width, 2 * self.target_height, radius=radius_prior_pixel)
 
         try:
-            data = pd.read_csv(fft_csv_file, header=None, names=['x', 'y', 'z'])  # Assuming no headers in the CSV
+            data_raw = pd.read_csv(fft_csv_file, header=None, names=['x', 'y', 'z'])  # Assuming no headers in the CSV
         except Exception as e:
             print(f"Error reading CSV file: {e}")
             return None
 
+        # There are some invalid points that are just at 0,0
+        data = data_raw.loc[(data_raw['x'] > 0) & (data_raw['y'] > 0)]
+
         if max_priors is not None and len(data) > max_priors:
-            points = data[['x', 'y']].values  # Extract coordinates as (x, y)
+            points = data[['x', 'y']].values
             if max_priors == 1:
                 # Select the most central point (closest to centroid)
                 centroid = points.mean(axis=0)
                 distances_to_centroid = np.linalg.norm(points - centroid, axis=1)
                 central_index = np.argmin(distances_to_centroid)
                 selected_indices = [central_index]
+
             else:
                 # Select max_priors points that maximize distances
                 selected_indices = [0]  # Start with the first point
@@ -190,6 +201,9 @@ class UUVDataset:
         if len(data):
             for _, row in data.iterrows():
                 v, u, z = int(row['x']), int(row['y']), float(row['z'])
+                # The FFT priors are defined for 320*240 window
+                u *= 2
+                v *= 2
                 translated_mask = circular_mask[
                     int(self.target_width - u):int(2 * self.target_width - u),
                     int(self.target_height - v):int(2 * self.target_height - v)

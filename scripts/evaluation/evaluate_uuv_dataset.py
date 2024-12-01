@@ -46,17 +46,14 @@ def main():
     interface.set_size(480, 640)
     interface.set_batch_size(1)
     interface.set_criterion()
+    interface.set_use_depth_prior(True)
 
-    depth_prior_base = Path('/home/asl/Downloads/rosbags/case_38/output/depth_prior')
-    depth_prior_dirs = ['5']
     output_dir = Path(args.dataset) / 'predictions'
     uuv_result = UUVResult()
-    for depth_prior_dir in depth_prior_dirs:
-        uuv_result.set_dir(output_dir / depth_prior_dir)
-        interface.set_use_depth_prior(True, depth_prior_base / depth_prior_dir)
-        interface.load_model(pretrained_from=args.network)
-        loader = interface.get_single_dataset_loader(args.dataset, min_index=0, max_index=-1)
-        interface.validate_epoch(0, loader, iteration_callback=uuv_result.save_output)
+    uuv_result.set_dir(output_dir)
+    interface.load_model(pretrained_from=args.network)
+    loader = interface.get_single_dataset_loader(args.dataset, min_index=0, max_index=-1)
+    interface.validate_epoch(0, loader, iteration_callback=uuv_result.save_output)
 
 
 
