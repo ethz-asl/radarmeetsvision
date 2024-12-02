@@ -212,7 +212,7 @@ class UUVDataset:
         else:
             # NOTE: Add the DVL as a fallback mechanism
             # NOTE: This is a very crude calibration, but probably good enough for this
-            IMU_TO_STEREO_DEPTH_CALIB = -0.06
+            IMU_TO_STEREO_DEPTH_CALIB = -0.04
 
             u = self.target_width // 2
             v = self.target_height // 2
