@@ -86,68 +86,46 @@ def process_npy_files(top_directory):
         folder_averages['Avg. FFT Prior [m]'] = np.array(distances)
 
     # Iterate through all folders in the top-level directory
-    for folder_name in sorted(os.listdir(top_directory)):
-        folder_path = os.path.join(top_directory, folder_name)
-        
-        # Ensure we're working with directories only
-        if os.path.isdir(folder_path):
-            averages_file = os.path.join(folder_path, "averages.txt")
-            
-            # Check if averages.txt already exists
-            if os.path.exists(averages_file) and False:
-                print(f"Skipping {folder_path} as averages.txt already exists.")
-                # Load existing averages from the file
-                with open(averages_file, "r") as f:
-                    averages = [float(line.split(":")[1].strip()) for line in f.readlines()]
-                folder_averages[folder_name] = averages
-                continue
+    averages = []
+    averages_file = Path(top_directory) / '..' / 'averages.txt'
+    for file_name in os.listdir(top_directory):
+        if file_name.endswith(".npy"):
+            index = int(file_name[:-4])
+            file_path = os.path.join(top_directory, file_name)
 
-            averages = []
+            matrix = np.load(file_path)
 
-            # Iterate through numerically named .npy files
-            for file_name in os.listdir(folder_path):
-                if file_name.endswith(".npy"):
-                    index = int(file_name[:-4])
-                    file_path = os.path.join(folder_path, file_name)
+            # Find the center 100x100 pixel field
+            h, w = matrix.shape
+            center_x, center_y = h // 2, w // 2
+            start_x = max(center_x - WINDOW_SIZE//2, 0)
+            start_y = max(center_y - WINDOW_SIZE//2, 0)
 
-                    # Load the matrix
-                    matrix = np.load(file_path)
+            # Adjust in case matrix dimensions are smaller than 100x100
+            end_x = min(start_x + WINDOW_SIZE, h)
+            end_y = min(start_y + WINDOW_SIZE, w)
+            center_field = matrix[start_x:end_x, start_y:end_y]
 
-                    # Extract dimensions
-                    h, w = matrix.shape
+            # Compute the average
+            STEREO_TO_IMU_DEPTH_CALIB = 0.04
+            avg_value = np.mean(center_field) + STEREO_TO_IMU_DEPTH_CALIB
 
-                    # Find the center 100x100 pixel field
-                    center_x, center_y = h // 2, w // 2
-                    start_x = max(center_x - WINDOW_SIZE//2, 0)
-                    start_y = max(center_y - WINDOW_SIZE//2, 0)
-
-                    # Adjust in case matrix dimensions are smaller than 100x100
-                    end_x = min(start_x + WINDOW_SIZE, h)
-                    end_y = min(start_y + WINDOW_SIZE, w)
-
-                    center_field = matrix[start_x:end_x, start_y:end_y]
-
-                    # Compute the average
-                    STEREO_TO_IMU_DEPTH_CALIB = 0.06
-                    avg_value = np.mean(center_field) + STEREO_TO_IMU_DEPTH_CALIB
-
-                    # Append the result as (index, average value)
-                    averages.append((timestamp_dict[index], avg_value))
-
+            # Append the result as (index, average value)
+            averages.append((timestamp_dict[index], avg_value))
 
             # Store averages for plotting
-            averages_np = np.array(averages)
-            averages_np = averages_np[averages_np[:, 0].argsort()]
-            folder_averages[folder_name] = averages_np
+    averages_np = np.array(averages)
+    averages_np = averages_np[averages_np[:, 0].argsort()]
+    folder_averages['Avg. depth [m]'] = averages_np
 
-            # Write the averages to a file in the same folder
-            try:
-                with open(averages_file, "w") as f:
-                    for index, avg in averages:
-                        f.write(f"{index}: {avg}\n")
-                print(f"Processed folder: {folder_path}")
-            except Exception as e:
-                print(f"Error writing output file for folder {folder_path}: {e}")
+    # Write the averages to a file in the same folder
+    try:
+        with open(averages_file, "w") as f:
+            for index, avg in averages:
+                f.write(f"{avg}\n")
+        print(f"Processed folder: {top_directory}")
+    except Exception as e:
+        print(f"Error writing output file for folder {top_directory}: {e}")
 
     return folder_averages
 
