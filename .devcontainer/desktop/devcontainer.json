@@ -30,7 +30,7 @@
             "type": "bind"
         },
         {
-            "source": "${localEnv:HOME}/MLStorage",
+            "source": "${localEnv:HOME}/Storage",
             "target": "/home/asl/Storage",
             "type": "bind"
         },
