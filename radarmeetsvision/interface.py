@@ -22,6 +22,7 @@ class Interface:
         self.batch_size = None
         self.criterion = None
         self.depth_min_max = None
+        self.depth_prior_dir = None
         self.device = get_device()
         self.encoder = None
         self.lr = None
@@ -39,7 +40,11 @@ class Interface:
         return {'d1': 0, 'd2': 0, 'd3': 0, 'abs_rel': 100, 'sq_rel': 100, 'rmse': 100, 'rmse_log': 100, 'log10': 100, 'silog': 100,
         'average_depth': 0.0}
 
-    def set_use_depth_prior(self, use):
+    def set_use_depth_prior(self, use, depth_prior_dir=None):
+        if depth_prior_dir is not None and Path(depth_prior_dir).is_dir():
+            logger.info(f"Overwriting depth prior dir: {depth_prior_dir}")
+            self.depth_prior_dir = Path(depth_prior_dir)
+
         self.use_depth_prior = use
 
     def set_encoder(self, encoder):
@@ -87,6 +92,8 @@ class Interface:
             self.model = get_model(pretrained_from, self.use_depth_prior, self.encoder, self.max_depth, output_channels=self.output_channels)
             self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
             self.model.to(self.device)
+        else:
+            logger.error(f"One or multiple undefined: {self.encoder}, {self.max_depth}, {self.output_channels}, {self.use_depth_prior}")
 
         return self.model
 
@@ -123,7 +130,7 @@ class Interface:
             if index_list != None:
                 index_min, index_max = index_list[i][0], index_list[i][1]
 
-            dataset = BlearnDataset(dataset_dir, task, self.size, index_min, index_max)
+            dataset = BlearnDataset(dataset_dir, task, self.size, index_min, index_max, self.depth_prior_dir)
 
             if len(dataset) > 0:
                 datasets.append(dataset)
@@ -138,6 +145,9 @@ class Interface:
 
         return loader, dataset
 
+    def get_single_dataset_loader(self, dataset_dir, min_index=0, max_index=-1):
+        dataset = BlearnDataset(dataset_dir, 'all', self.size, min_index, max_index, self.depth_prior_dir)
+        return DataLoader(dataset, batch_size=self.batch_size, pin_memory=True, drop_last=True)
 
     def update_best_result(self, results, nsamples):
         if nsamples:
@@ -155,18 +165,23 @@ class Interface:
 
     def prepare_sample(self, sample, random_flip=False):
         image = sample['image'].to(self.device)
-        depth_target = sample['depth'].to(self.device)
+
         depth_prior = sample['depth_prior'].to(self.device)
-        valid_mask = sample['valid_mask'].to(self.device)
-
-        mask = (valid_mask == 1) & (depth_target >= self.min_depth) & (depth_target <= self.max_depth)
-
         if self.use_depth_prior:
             depth_prior = depth_prior.unsqueeze(1)
             image = torch.cat((image, depth_prior), axis=1)
 
-        if random_flip:
-            image, depth_target, valid_mask = randomly_flip(image, depth_target, mask)
+        if 'depth' in sample.keys() and 'valid_mask' in sample.keys():
+            depth_target = sample['depth'].to(self.device)
+            valid_mask = sample['valid_mask'].to(self.device)
+            mask = (valid_mask == 1) & (depth_target >= self.min_depth) & (depth_target <= self.max_depth)
+
+            if random_flip:
+                image, depth_target, mask = randomly_flip(image, depth_target, mask)
+
+        else:
+            depth_target, mask = None, None
+
 
         return image, depth_prior, depth_target, mask
 
@@ -200,7 +215,7 @@ class Interface:
                 logger.info('Iter: {}/{}, LR: {:.7f}, Loss: {:.3f}'.format(i, len(train_loader), self.optimizer.param_groups[0]['lr'], total_loss/(i + 1.0)))
 
 
-    def validate_epoch(self, epoch, val_loader):
+    def validate_epoch(self, epoch, val_loader, iteration_callback=None):
         self.model.eval()
 
         self.results, self.results_per_sample, nsamples = get_empty_results(self.device)
@@ -208,18 +223,23 @@ class Interface:
             image, _, depth_target, mask = self.prepare_sample(sample, random_flip=False)
 
             # TODO: Maybe not hardcode 10 here?
-            if mask.sum() > 10:
+            if mask is None or mask.sum() > 10:
                 with torch.no_grad():
                     prediction = self.model(image)
                     prediction = interpolate_shape(prediction, depth_target)
                     depth_prediction = get_depth_from_prediction(prediction, image)
 
-                    current_results = eval_depth(depth_prediction[mask], depth_target[mask])
-                    if current_results is not None:
-                        for k in self.results.keys():
-                            self.results[k] += current_results[k]
-                            self.results_per_sample[k].append(current_results[k])
-                        nsamples += 1
+                    # TODO: Expand on this interface
+                    if iteration_callback is not None:
+                        iteration_callback(i, depth_prediction)
+
+                    if mask is not None:
+                        current_results = eval_depth(depth_prediction[mask], depth_target[mask])
+                        if current_results is not None:
+                            for k in self.results.keys():
+                                self.results[k] += current_results[k]
+                                self.results_per_sample[k].append(current_results[k])
+                            nsamples += 1
 
                 if i % 10 == 0:
                     abs_rel = (self.results["abs_rel"]/nsamples).item()

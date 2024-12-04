@@ -28,15 +28,16 @@ def get_confidence_from_prediction(prediction):
     return prediction[:, 1:, :, :]
 
 def interpolate_shape(prediction, target, mode='bilinear'):
-    if len(target.shape) > 2:
-        target = target.squeeze()
+    if target is not None:
+        if len(target.shape) > 2:
+            target = target.squeeze()
 
-    interp_shape = (target.shape[0], target.shape[1])
+        interp_shape = (target.shape[0], target.shape[1])
 
-    if mode == 'nearest':
-        if len(prediction.shape) < 4:
-            prediction = prediction.unsqueeze(0)
-        prediction = F.interpolate(prediction, interp_shape, mode=mode)
-    else:
-        prediction = F.interpolate(prediction, interp_shape, mode=mode, align_corners=True)
+        if mode == 'nearest':
+            if len(prediction.shape) < 4:
+                prediction = prediction.unsqueeze(0)
+            prediction = F.interpolate(prediction, interp_shape, mode=mode)
+        else:
+            prediction = F.interpolate(prediction, interp_shape, mode=mode, align_corners=True)
     return prediction
