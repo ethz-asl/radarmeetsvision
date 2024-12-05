@@ -60,12 +60,17 @@ class ValidationDataset:
         depth_prior_dir = output_dir / 'depth_prior'
         depth_prior_dir.mkdir(exist_ok=True)
 
+        # Empty pose file
+        pose_file = output_dir / 'pose_file.txt'
+        with pose_file.open('w') as f:
+            pass
+
         # Build the dict with depth GTs
         depth_dict_file = output_dir / 'depth_dict.pkl'
         intrinsics_dict_file = output_dir / 'intrinsics_dict.pkl'
         if not depth_dict_file.is_file() or not intrinsics_dict_file.is_file():
             logger.info("Computing depth dict")
-            depth_dict, intrinsics_dict = self.get_depth_dict(self.camera_parameters_file, self.offset_file, self.world_pointcloud_file)
+            depth_dict, intrinsics_dict = self.get_depth_dict()
             with depth_dict_file.open('wb') as f:
                 pickle.dump(depth_dict, f)
             with intrinsics_dict_file.open('wb') as f:
@@ -77,25 +82,19 @@ class ValidationDataset:
                 intrinsics_dict = pickle.load(f)
 
         topics = ['/image_raw', '/radar/cfar_detections', '/tf_static']
-        image_count = 0
         points_radar_window = []
         snr_radar_window = []
-        noise_radar_window = []
         bridge = CvBridge()
-        R_camera_radar = None
-        t_camera_radar = None
 
         with rosbag.Bag(self.bag_file, 'r') as bag:
             for i, (topic, msg, t) in enumerate(bag.read_messages(topics=topics)):
                 if topic == '/radar/cfar_detections':
                     # Transform PC to camera frame
-                    points_radar, snr_radar, noise_radar = self.pointcloud2_to_xyz_array(msg)
+                    points_radar, snr_radar, _ = self.pointcloud2_to_xyz_array(msg)
                     points_radar = points_radar.T
 
-                    # TODO: Fake point
                     if len(points_radar):
-                        # R_camera_radar @ points_radar + t_camera_radar
-                        points_radar_window.append(self.R_camera_radar @ points_radar)
+                        points_radar_window.append(self.R_camera_radar @ points_radar + self.t_camera_radar)
                         snr_radar_window.append(snr_radar)
                         if len(points_radar_window) > 3:
                             points_radar_window.pop(0)
@@ -111,23 +110,30 @@ class ValidationDataset:
 
                         img = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
                         depth_prior = self.get_depth_prior(points_radar_window, snr_radar_window, depth_dict[timestamp])
+                        index = intrinsics_dict[timestamp]['index']
 
                         if depth_prior is not None:
                             img = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
                             img = cv2.resize(img, (img.shape[1]//self.downscale, img.shape[0]//self.downscale))
-                            img_file = rgb_dir / f'{image_count:05d}_rgb.jpg'
+                            img_file = rgb_dir / f'{index:05d}_rgb.jpg'
                             cv2.imwrite(str(img_file), img)
 
                             # Write the depth gt
-                            depth_file = output_dir / 'depth' / f'{image_count:05d}_d.npy'
+                            depth_file = output_dir / 'depth' / f'{index:05d}_d.npy'
                             np.save(depth_file, depth_dict[timestamp])
-                            plt.imsave(output_dir / 'depth' / f'{image_count:05d}_d.jpg', depth_dict[timestamp], vmin=0,vmax=15)
+                            plt.imsave(output_dir / 'depth' / f'{index:05d}_d.jpg', depth_dict[timestamp], vmin=0,vmax=15)
 
-                            depth_prior_file = output_dir / 'depth_prior' / f'{image_count:05d}_ra.npy'
+                            depth_prior_file = output_dir / 'depth_prior' / f'{index:05d}_ra.npy'
                             np.save(depth_prior_file, depth_prior)
-                            plt.imsave(output_dir / 'depth_prior' / f'{image_count:05d}_ra.jpg', depth_prior, vmin=0,vmax=15)
+                            plt.imsave(output_dir / 'depth_prior' / f'{index:05d}_ra.jpg', depth_prior, vmin=0,vmax=15)
 
-                            image_count += 1
+                            # Write pose
+                            pose_flat = intrinsics_dict[timestamp]['pose'].flatten()
+                            with pose_file.open('a') as f:
+                                f.write(f'{index}: ')
+                                f.write(' '.join(map(str, pose_flat)))
+                                f.write('\n')
+
 
     def pointcloud2_to_xyz_array(self, cloud_msg):
         # Convert PointCloud2 to a list of points (x, y, z)
@@ -154,7 +160,7 @@ class ValidationDataset:
             radar_image_points = self.K @ points_radar
             radar_depth = radar_image_points[2, :].copy()
             radar_image_points /= radar_depth
-            
+
             depth_positive_mask = radar_depth > 0.0
             if depth_positive_mask.sum() > 0:
                 u = radar_image_points[0, depth_positive_mask]
@@ -205,6 +211,7 @@ class ValidationDataset:
 
     def process_camera_data(self, data_dict, points, offset):
         timestamp = data_dict['timestamp']
+        index = data_dict['index']
         K = data_dict['K']
         R = data_dict['R']
         t = data_dict['t']
@@ -243,16 +250,21 @@ class ValidationDataset:
                 # Use interpolation to assign depth values instead of direct pixel indexing
                 depth = self.interpolate_depth(u_distorted, v_distorted, u, v, depth_flat, height, width)
                 depth_dict[timestamp] = depth
-                intrinsics_dict[timestamp] = (K, radial_dist, tangential_dist)
+                intrinsics_dict[timestamp] = {'K': K,
+                                              'radial_dist': radial_dist,
+                                              'tangential_dist': tangential_dist,
+                                              'index': index,
+                                              'pose': pose
+                                            }
 
-        logger.info(f'Computed depth for {timestamp}')
+        logger.info(f'Computed depth for {timestamp}, {index}')
         return depth_dict, intrinsics_dict
 
 
-    def get_depth_dict(self, camera_parameters_file, offset_file, world_pointcloud_file):
+    def get_depth_dict(self):
         # Read the offset and point cloud data
-        offset = self.read_offset(offset_file)
-        points = self.read_pointcloud(world_pointcloud_file, offset)
+        offset = self.read_offset(self.offset_file)
+        points = self.read_pointcloud(self.world_pointcloud_file, offset)
 
         # Prepare a multiprocessing pool
         pool = mp.Pool(mp.cpu_count())
@@ -347,11 +359,12 @@ class ValidationDataset:
 
         filename_mask = r'([0-9]*).jpg ([0-9]*) ([0-9]*)'
 
+        image_count = 0
         intrinsics_index = None
         translation_index = None
         radial_dist_index = None
         tangential_dist_index = None
-        data_dict = {'timestamp': None, 'width': None, 'height': None, 'K': None, 't': None, 'R': None}
+        data_dict = {'timestamp': None, 'index': None, 'width': None, 'height': None, 'K': None, 't': None, 'R': None}
 
         for i in range(len(lines)):
             line = lines[i]
@@ -361,11 +374,13 @@ class ValidationDataset:
                     data_dict['timestamp'] = int(out.group(1))
                     data_dict['width'] = int(out.group(2))
                     data_dict['height'] = int(out.group(3))
+                    data_dict['index'] = image_count
 
                     intrinsics_index = i + 1
                     radial_dist_index = i + 4
                     tangential_dist_index = i + 5
                     translation_index = i + 6
+                    image_count += 1
 
             elif intrinsics_index == i:
                 intrinsics_index = None
@@ -397,7 +412,6 @@ class ValidationDataset:
                 data_dict['R'] = R
 
                 yield data_dict
-
 
     def read_pointcloud(self, pointcloud_file, offset):
         points = None
