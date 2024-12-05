@@ -40,10 +40,10 @@ class ValidationDataset:
 
         # TODO: Don't hardcode the calibrations, what about different setups
         # Correct for aesch and maschinenhalle
-        self.R_camera_radar = np.array(([[-9.99537680e-01, 2.06396371e-03, -3.03342592e-02],
-                                         [ 3.03920764e-02, 3.94275324e-02, -9.98760127e-01],
-                                         [8.65399670e-04, 9.99220301e-01, 3.94720324e-02]]))
-        self.t_camera_radar = np.array([[0.01140952, -0.0056055,  -0.02026767]]).T
+        self.R_camera_radar = np.array(([[0.99993637, 0.00594794, -0.0095858],
+                                         [-0.00965354, 0.01146757, -0.99988765],
+                                         [-0.00583735, 0.99991655, 0.01152426]]))
+        self.t_camera_radar = np.array([[0.00755498, 0.00640742, -0.02652784]]).T
         self.K = np.array([[1200.4311769445228, 0.0, 634.1037111885645],
                            [0.0, 1201.8315992165312, 432.2169659507848],
                            [0.0, 0.0, 1.0]])
@@ -194,24 +194,6 @@ class ValidationDataset:
                         snr_prior += points_snr[i] * translated_mask
 
                     depth_prior = depth_prior.T
-
-                    # depth_factor = np.zeros((height, width))
-                    # depth_factor[height//factor:2*height//factor, width//factor:2*width//factor] = depth
-                    # fig, axs = plt.subplots(1, 2)
-                    # axs.set_xlim([0, width])
-                    # axs.set_ylim([height, 0])
-                    # scatter = axs.scatter(u_distorted, self.transform_v_to_plt(v_distorted, height), c=radar_depth, vmin=0.0, vmax=5.0)
-                    # cbar = plt.colorbar(scatter, ax=axs, cmap='viridis')
-                    # cbar.set_label('Radar Depth')
-                    # scatter = axs[0].scatter(u_distorted, v_distorted, c=radar_depth, vmin=0.0, vmax=15.0)
-                    # cbar = plt.colorbar(scatter, ax=axs, cmap='viridis')
-                    # axs[0].imshow(depth, cmap='viridis', origin='upper', vmin=0.0, vmax=15.0)
-                    # axs[0].set_xlim([0, width])
-                    # axs[0].set_ylim([height, 0])
-                    # axs[1].imshow(depth_prior, vmin=0.0, cmap='viridis', vmax=15.0)
-
-                    # print(radar_depth, points_snr, points_noise)
-                    # plt.show()
 
         return depth_prior
 
