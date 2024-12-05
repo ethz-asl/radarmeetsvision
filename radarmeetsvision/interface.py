@@ -145,9 +145,10 @@ class Interface:
 
         return loader, dataset
 
-    def get_single_dataset_loader(self, dataset_dir, min_index=0, max_index=-1):
+    def get_single_dataset(self, dataset_dir, min_index=0, max_index=-1):
         dataset = BlearnDataset(dataset_dir, 'all', self.size, min_index, max_index, self.depth_prior_dir)
-        return DataLoader(dataset, batch_size=self.batch_size, pin_memory=True, drop_last=True)
+        loader = DataLoader(dataset, batch_size=self.batch_size, pin_memory=True, drop_last=True)
+        return dataset, loader
 
     def update_best_result(self, results, nsamples):
         if nsamples:

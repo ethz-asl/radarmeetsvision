@@ -1,28 +1,11 @@
 import argparse
-import re
+import matplotlib.pyplot as plt
 import numpy as np
 import pywavemap as wave
 import radarmeetsvision as rmv
+import re
 
 from pathlib import Path
-from PIL import Image as PilImage
-
-"""
-        # Load transform
-        pose_file = file_path_prefix + "_pose.txt"
-        if not os.path.isfile(pose_file):
-            print(f"Could not find pose file '{pose_file}'")
-            current_index += 1
-            raise SystemExit
-        if os.path.isfile(pose_file):
-            with open(pose_file) as f:
-                pose_data = [float(x) for x in f.read().split()]
-                transform = np.eye(4)
-                for row in range(4):
-                    for col in range(4):
-                        transform[row, col] = pose_data[row * 4 + col]
-        pose = wave.Pose(transform)
- """
 
 class WavemapPipeline:
     def __init__(self, dataset_dir):
@@ -40,7 +23,7 @@ class WavemapPipeline:
         self.pipeline.add_operation({
             "type": "threshold_map",
             "once_every": {
-                "seconds": 5.0
+                "seconds": 5.0 # TODO: What does this mean in this context?
             }
         })
 
@@ -60,10 +43,10 @@ class WavemapPipeline:
                 "measurement_model": {
                     "type": "continuous_ray",
                     "range_sigma": {
-                        "meters": 0.1 # TODO: What makes sense here? Relative possible?
+                        "meters": 0.02 # TODO: What makes sense here? Relative possible?
                     },
-                    "scaling_free": 0.2, # TODO: 0.5 / 0.5
-                    "scaling_occupied": 0.4 # TODO
+                    "scaling_free": 0.4, # TODO: Was 0.2, 0.4
+                    "scaling_occupied": 0.8 # TODO
                 },
                 "integration_method": {
                     "type": "hashed_chunked_wavelet_integrator",
@@ -71,12 +54,15 @@ class WavemapPipeline:
                         "meters": 0.1
                     },
                     "max_range": {
-                        "meters": 10.0
+                        "meters": 20.0
                     }
                 },
             })
 
+        self.dataset_dir = Path(dataset_dir)
         self.pose_dict = self.read_pose_dict(dataset_dir)
+
+        self.initial_pose = None
 
     def read_pose_dict(self, dataset_dir):
         pose_mask = r'-?\d+\.\d+(?:e[+-]?\d+)?|-?\d+'
@@ -100,14 +86,40 @@ class WavemapPipeline:
 
         return pose_dict
 
-    def prediction_callback(self, index, depth_prediction):
-        depth_prediction_np = depth_prediction.cpu().numpy().squeeze().T
+    def integrate_wavemap(self, depth_prediction_np, pose_np):
+        if self.initial_pose is None:
+            self.initial_pose = self.pose_dict[index]
+
+        # Pose in the frame of the first pose
+        pose_np = np.linalg.inv(self.initial_pose) @ pose_np
+
         image = wave.Image(depth_prediction_np)
-        pose = wave.Pose(self.pose_dict[index])
+        pose = wave.Pose(pose_np)
 
         # Integrate the depth image
-        print(f"Integrating measurement {index}")
         self.pipeline.run_pipeline(["rmv"], wave.PosedImage(pose, image))
+
+    def prediction_callback(self, index, depth_prediction):
+        depth_prediction_np = depth_prediction.cpu().numpy().squeeze()
+        file = self.dataset_dir / 'prediction' / f'{index:05d}_pred'
+        np.save(str(file)+'.npy', depth_prediction_np)
+        plt.imsave(str(file)+'.jpg', depth_prediction_np)
+        pose_np = self.pose_dict[index]
+
+        print(f"Integrating measurement {index}")
+        self.integrate_wavemap(depth_prediction_np.T, pose_np)
+
+    def prediction_reader(self, prediction_dir, dataset):
+        filelist = dataset.filelist
+        for i in range(len(dataset)):
+            index = filelist[i]
+            prediction_file = prediction_dir / f'{index:05d}_pred.npy'
+            depth_prediction_np = np.load(str(prediction_file))
+            pose_np = self.pose_dict[index]
+
+            print(f"Integrating measurement {index}")
+            self.integrate_wavemap(depth_prediction_np.T, pose_np)
+
 
     def finalize(self):
         # Remove map nodes that are no longer needed
@@ -115,7 +127,7 @@ class WavemapPipeline:
 
         # Save the map
         print(f"Saving map of size {self.map.memory_usage} bytes")
-        self.map.store('output.wvmp')
+        self.map.store('/home/asl/Downloads/output.wvmp')
 
         del self.pipeline, self.map
 
@@ -134,10 +146,17 @@ def main(args):
     interface.set_use_depth_prior(True)
 
     interface.load_model(pretrained_from=args.network)
-    loader = interface.get_single_dataset_loader(args.dataset, min_index=0, max_index=-1)
+    dataset, loader = interface.get_single_dataset(args.dataset, min_index=0, max_index=-1)
 
     wp = WavemapPipeline(args.dataset)
-    interface.validate_epoch(0, loader, iteration_callback=wp.prediction_callback)
+
+    predictions_dir = Path(args.dataset) / 'prediction'
+    if not predictions_dir.is_dir():
+        predictions_dir.mkdir(exist_ok=True)
+        interface.validate_epoch(0, loader, iteration_callback=wp.prediction_callback)
+    else:
+        wp.prediction_reader(predictions_dir, dataset)
+
     wp.finalize()
 
 

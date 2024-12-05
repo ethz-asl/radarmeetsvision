@@ -86,6 +86,8 @@ class ValidationDataset:
         snr_radar_window = []
         bridge = CvBridge()
 
+        translations = []
+
         with rosbag.Bag(self.bag_file, 'r') as bag:
             for i, (topic, msg, t) in enumerate(bag.read_messages(topics=topics)):
                 if topic == '/radar/cfar_detections':
@@ -133,6 +135,10 @@ class ValidationDataset:
                                 f.write(f'{index}: ')
                                 f.write(' '.join(map(str, pose_flat)))
                                 f.write('\n')
+
+                            pose = pose_flat.reshape((4, 4))
+                            t = pose[3, :3]
+                            print(t)
 
 
     def pointcloud2_to_xyz_array(self, cloud_msg):
