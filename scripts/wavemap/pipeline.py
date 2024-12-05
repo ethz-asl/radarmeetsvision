@@ -1,4 +1,5 @@
 import argparse
+import re
 import numpy as np
 import pywavemap as wave
 import radarmeetsvision as rmv
@@ -24,7 +25,7 @@ from PIL import Image as PilImage
  """
 
 class WavemapPipeline:
-    def __init__(self):
+    def __init__(self, dataset_dir):
         self.map = wave.Map.create({
             "type": "hashed_chunked_wavelet_octree",
             "min_cell_width": {
@@ -33,7 +34,7 @@ class WavemapPipeline:
         })
 
         # Create a measurement integration pipeline
-        self.pipeline = wave.Pipeline(map)
+        self.pipeline = wave.Pipeline(self.map)
 
         # Add map operations
         self.pipeline.add_operation({
@@ -75,12 +76,34 @@ class WavemapPipeline:
                 },
             })
 
-    def prediction_callback(self, index, depth_prediction):
-        depth_prediction_np = depth_prediction.cpu().numpy()
-        import pdb; pdb.set_trace()
+        self.pose_dict = self.read_pose_dict(dataset_dir)
 
+    def read_pose_dict(self, dataset_dir):
+        pose_mask = r'-?\d+\.\d+(?:e[+-]?\d+)?|-?\d+'
+        pose_dict = {}
+        pose_file = Path(dataset_dir) / 'pose_file.txt'
+        if pose_file.is_file():
+            with pose_file.open('r') as f:
+                lines = f.readlines()
+                for line in lines:
+                    out = re.findall(pose_mask, line)
+                    if out is not None:
+                        index = int(out[0])
+                        pose_dict[index] = np.zeros((4, 4))
+                        pose_dict[index][3, 3] = 1.0
+                        for i in range(12):
+                            row = i // 4
+                            col = i % 4
+                            pose_dict[index][row][col] = float(out[i + 1])
+        else:
+            print(f'Could not find {pose_file}')
+
+        return pose_dict
+
+    def prediction_callback(self, index, depth_prediction):
+        depth_prediction_np = depth_prediction.cpu().numpy().squeeze().T
         image = wave.Image(depth_prediction_np)
-        pose = self.get_pose(index)
+        pose = wave.Pose(self.pose_dict[index])
 
         # Integrate the depth image
         print(f"Integrating measurement {index}")
@@ -113,7 +136,7 @@ def main(args):
     interface.load_model(pretrained_from=args.network)
     loader = interface.get_single_dataset_loader(args.dataset, min_index=0, max_index=-1)
 
-    wp = WavemapPipeline()
+    wp = WavemapPipeline(args.dataset)
     interface.validate_epoch(0, loader, iteration_callback=wp.prediction_callback)
     wp.finalize()
 
@@ -123,4 +146,4 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, required=True, help='Path to the dataset directory')
     parser.add_argument('--network', type=str, help='Path to the network file')
     args = parser.parse_args()
-    main()
+    main(args)

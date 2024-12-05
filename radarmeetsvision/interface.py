@@ -231,7 +231,7 @@ class Interface:
 
                     # TODO: Expand on this interface
                     if iteration_callback is not None:
-                        iteration_callback(i, depth_prediction)
+                        iteration_callback(int(sample['index']), depth_prediction)
 
                     if mask is not None:
                         current_results = eval_depth(depth_prediction[mask], depth_target[mask])
