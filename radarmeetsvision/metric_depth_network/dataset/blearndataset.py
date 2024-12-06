@@ -138,6 +138,7 @@ class BlearnDataset(Dataset):
         sample['depth_prior'] = torch.nan_to_num(sample['depth_prior'], nan=0.0)
 
         sample['image_path'] = str(img_path)
+        sample['index'] = index
 
         return sample
 
