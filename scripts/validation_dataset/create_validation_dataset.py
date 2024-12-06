@@ -5,6 +5,7 @@ import logging
 import matplotlib.pyplot as plt
 import multiprocessing as mp
 import numpy as np
+import open3d as o3d
 import pickle
 import re
 import rosbag
@@ -23,7 +24,7 @@ class ValidationDataset:
     def __init__(self, input_dir):
         self.downscale = 2
 
-        self.snr_filter = 150 if 'outdoor' in str(input_dir) else 200
+        self.snr_filter = 0 if 'outdoor' in str(input_dir) else 0
         logger.info(f"Setting SNR to {self.snr_filter}")
         for file_path in input_dir.iterdir():
             if 'calibrated_camera_parameters.txt' in str(file_path):
@@ -68,6 +69,10 @@ class ValidationDataset:
         # Build the dict with depth GTs
         depth_dict_file = output_dir / 'depth_dict.pkl'
         intrinsics_dict_file = output_dir / 'intrinsics_dict.pkl'
+
+        # Read the offset and point cloud data
+        offset = self.read_offset(self.offset_file)
+        self.points = self.read_pointcloud(self.world_pointcloud_file, offset)
         if not depth_dict_file.is_file() or not intrinsics_dict_file.is_file():
             logger.info("Computing depth dict")
             depth_dict, intrinsics_dict = self.get_depth_dict()
@@ -85,8 +90,7 @@ class ValidationDataset:
         points_radar_window = []
         snr_radar_window = []
         bridge = CvBridge()
-
-        translations = []
+        points_radar_all = None
 
         with rosbag.Bag(self.bag_file, 'r') as bag:
             for i, (topic, msg, t) in enumerate(bag.read_messages(topics=topics)):
@@ -98,7 +102,7 @@ class ValidationDataset:
                     if len(points_radar):
                         points_radar_window.append(self.R_camera_radar @ points_radar + self.t_camera_radar)
                         snr_radar_window.append(snr_radar)
-                        if len(points_radar_window) > 3:
+                        if len(points_radar_window) > 1:
                             points_radar_window.pop(0)
                             snr_radar_window.pop(0)
 
@@ -114,6 +118,18 @@ class ValidationDataset:
                         depth_prior = self.get_depth_prior(points_radar_window, snr_radar_window, depth_dict[timestamp])
                         index = intrinsics_dict[timestamp]['index']
 
+                        pose = intrinsics_dict[timestamp]['pose']
+                        R = pose[:3, :3]
+                        t = pose[:3, 3]
+                        R_inv = R.T
+                        t_inv = -R_inv.dot(t)
+                        pose_inv = np.hstack((R_inv, t_inv.reshape(-1, 1)))
+                        points_inertial = pose_inv @ np.vstack((points_radar_window[0], np.ones(points_radar_window[0].shape[1])))
+                        if points_radar_all is None:
+                            points_radar_all = points_inertial[:3, :]
+                        else:
+                            points_radar_all = np.hstack((points_radar_all, points_inertial[:3, :]))
+
                         if depth_prior is not None:
                             img = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
                             img = cv2.resize(img, (img.shape[1]//self.downscale, img.shape[0]//self.downscale))
@@ -123,11 +139,11 @@ class ValidationDataset:
                             # Write the depth gt
                             depth_file = output_dir / 'depth' / f'{index:05d}_d.npy'
                             np.save(depth_file, depth_dict[timestamp])
-                            plt.imsave(output_dir / 'depth' / f'{index:05d}_d.jpg', depth_dict[timestamp], vmin=0,vmax=15)
+                            plt.imsave(output_dir / 'depth' / f'{index:05d}_d.jpg', depth_dict[timestamp], vmin=0,vmax=15, cmap='viridis')
 
                             depth_prior_file = output_dir / 'depth_prior' / f'{index:05d}_ra.npy'
                             np.save(depth_prior_file, depth_prior)
-                            plt.imsave(output_dir / 'depth_prior' / f'{index:05d}_ra.jpg', depth_prior, vmin=0,vmax=15)
+                            plt.imsave(output_dir / 'depth_prior' / f'{index:05d}_ra.jpg', depth_prior, vmin=0,vmax=15, cmap='viridis')
 
                             # Write pose
                             pose_flat = intrinsics_dict[timestamp]['pose'].flatten()
@@ -135,6 +151,29 @@ class ValidationDataset:
                                 f.write(f'{index}: ')
                                 f.write(' '.join(map(str, pose_flat)))
                                 f.write('\n')
+
+        self.visualize_point_clouds(self.points, points_radar_all)
+
+    def visualize_point_clouds(self, points, points_radar_all):
+        # First point cloud: points from intrinsics_dict
+        pc = points[:3, :].T
+
+        # Create the Open3D PointCloud object for pc
+        point_cloud1 = o3d.geometry.PointCloud()
+        point_cloud1.points = o3d.utility.Vector3dVector(pc)
+        point_cloud1.paint_uniform_color([0, 0, 1])
+
+        # Second point cloud: points_radar_all
+        point_cloud2 = o3d.geometry.PointCloud()
+        point_cloud2.points = o3d.utility.Vector3dVector(points_radar_all.T)
+        point_cloud2.paint_uniform_color([1, 0, 0])
+
+        vis = o3d.visualization.Visualizer()
+        vis.create_window()
+        vis.add_geometry(point_cloud1)
+        vis.add_geometry(point_cloud2)
+        vis.run()
+        vis.destroy_window()
 
 
     def pointcloud2_to_xyz_array(self, cloud_msg):
@@ -193,7 +232,7 @@ class ValidationDataset:
 
         return depth_prior
 
-    def process_camera_data(self, data_dict, points, offset):
+    def process_camera_data(self, data_dict, points):
         timestamp = data_dict['timestamp']
         index = data_dict['index']
         K = data_dict['K']
@@ -218,6 +257,7 @@ class ValidationDataset:
         if depth_positive_mask.sum() > 0:
             depth_flat = depth_flat[depth_positive_mask]
             image_points_filtered = image_points[:, depth_positive_mask] / depth_flat
+            points_filtered = points[:, depth_positive_mask]
 
             u, v = image_points_filtered[0, :], image_points_filtered[1, :]
 
@@ -230,6 +270,9 @@ class ValidationDataset:
             if inside_image_mask.sum() > 0:
                 v_distorted = v_distorted[inside_image_mask]
                 u_distorted = u_distorted[inside_image_mask]
+                points_camera = pose @ points_filtered[:, inside_image_mask]
+
+                z_limit = points_camera[2, :] < 30.0
 
                 # Use interpolation to assign depth values instead of direct pixel indexing
                 depth = self.interpolate_depth(u_distorted, v_distorted, u, v, depth_flat, height, width)
@@ -238,7 +281,8 @@ class ValidationDataset:
                                               'radial_dist': radial_dist,
                                               'tangential_dist': tangential_dist,
                                               'index': index,
-                                              'pose': pose
+                                              'pose': pose,
+                                              'points': points_camera[:, z_limit]
                                             }
 
         logger.info(f'Computed depth for {timestamp}, {index}')
@@ -246,17 +290,12 @@ class ValidationDataset:
 
 
     def get_depth_dict(self):
-        # Read the offset and point cloud data
-        offset = self.read_offset(self.offset_file)
-        points = self.read_pointcloud(self.world_pointcloud_file, offset)
-
-        # Prepare a multiprocessing pool
         pool = mp.Pool(mp.cpu_count())
 
         # Arguments for each process
         tasks = []
         for data_dict in self.get_next_camera(self.camera_parameters_file):
-            tasks.append((data_dict.copy(), points, offset))
+            tasks.append((data_dict.copy(), self.points))
 
         # Processing data in parallel using Pool.starmap
         results = pool.starmap(self.process_camera_data, tasks)
