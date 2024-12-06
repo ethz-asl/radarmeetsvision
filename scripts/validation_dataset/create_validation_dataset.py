@@ -136,10 +136,6 @@ class ValidationDataset:
                                 f.write(' '.join(map(str, pose_flat)))
                                 f.write('\n')
 
-                            pose = pose_flat.reshape((4, 4))
-                            t = pose[3, :3]
-                            print(t)
-
 
     def pointcloud2_to_xyz_array(self, cloud_msg):
         # Convert PointCloud2 to a list of points (x, y, z)

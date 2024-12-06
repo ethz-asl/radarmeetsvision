@@ -45,8 +45,8 @@ class WavemapPipeline:
                     "range_sigma": {
                         "meters": 0.02 # TODO: What makes sense here? Relative possible?
                     },
-                    "scaling_free": 0.4, # TODO: Was 0.2, 0.4
-                    "scaling_occupied": 0.8 # TODO
+                    "scaling_free": 0.2,
+                    "scaling_occupied": 0.4
                 },
                 "integration_method": {
                     "type": "hashed_chunked_wavelet_integrator",
@@ -86,13 +86,8 @@ class WavemapPipeline:
 
         return pose_dict
 
-    def integrate_wavemap(self, depth_prediction_np, pose_np):
-        if self.initial_pose is None:
-            self.initial_pose = self.pose_dict[index]
-
-        # Pose in the frame of the first pose
-        pose_np = np.linalg.inv(self.initial_pose) @ pose_np
-
+    def integrate_wavemap(self, depth_prediction_np, pose_np, index):
+        pose_np = np.linalg.inv(pose_np)
         image = wave.Image(depth_prediction_np)
         pose = wave.Pose(pose_np)
 
@@ -107,7 +102,7 @@ class WavemapPipeline:
         pose_np = self.pose_dict[index]
 
         print(f"Integrating measurement {index}")
-        self.integrate_wavemap(depth_prediction_np.T, pose_np)
+        self.integrate_wavemap(depth_prediction_np.T, pose_np, index)
 
     def prediction_reader(self, prediction_dir, dataset):
         filelist = dataset.filelist
@@ -118,8 +113,9 @@ class WavemapPipeline:
             pose_np = self.pose_dict[index]
 
             print(f"Integrating measurement {index}")
-            self.integrate_wavemap(depth_prediction_np.T, pose_np)
-
+            self.integrate_wavemap(depth_prediction_np.T, pose_np, index)
+            if i > 50:
+                break
 
     def finalize(self):
         # Remove map nodes that are no longer needed
