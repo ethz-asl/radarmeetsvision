@@ -148,7 +148,9 @@ class ValidationDataset:
 
                         else:
                             points_radar_all = np.hstack((points_radar_all, points_inertial[:3, :]))
-                            snr_radar_all = np.vstack((snr_radar_all, snr_radar))
+
+                            if len(snr_radar):
+                                snr_radar_all = np.vstack((snr_radar_all, snr_radar))
 
                         if depth_prior is not None:
                             img = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
