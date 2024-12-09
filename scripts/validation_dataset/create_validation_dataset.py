@@ -97,7 +97,6 @@ class ValidationDataset:
         topics = ['/image_raw', '/radar/cfar_detections', '/tf_static']
         points_radar_window = []
         snr_radar_window = []
-        noise_radar_window = []
         bridge = CvBridge()
         points_radar_all = None
         snr_radar_all = None
@@ -106,7 +105,7 @@ class ValidationDataset:
             for i, (topic, msg, t) in enumerate(bag.read_messages(topics=topics)):
                 if topic == '/radar/cfar_detections':
                     # Transform PC to camera frame
-                    points_radar, snr_radar, noise_radar = self.pointcloud2_to_xyz_array(msg)
+                    points_radar, snr_radar, _ = self.pointcloud2_to_xyz_array(msg)
                     points_radar = points_radar.T
                     noise_radar = noise_radar.T
 
@@ -385,6 +384,7 @@ class ValidationDataset:
 
 
     def get_depth_dict(self):
+        # Prepare a multiprocessing pool
         pool = mp.Pool(mp.cpu_count())
 
         # Arguments for each process
