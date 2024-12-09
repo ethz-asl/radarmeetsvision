@@ -97,6 +97,7 @@ class ValidationDataset:
         topics = ['/image_raw', '/radar/cfar_detections', '/tf_static']
         points_radar_window = []
         snr_radar_window = []
+        noise_radar_window = []
         bridge = CvBridge()
         points_radar_all = None
         snr_radar_all = None
@@ -105,7 +106,7 @@ class ValidationDataset:
             for i, (topic, msg, t) in enumerate(bag.read_messages(topics=topics)):
                 if topic == '/radar/cfar_detections':
                     # Transform PC to camera frame
-                    points_radar, snr_radar, _ = self.pointcloud2_to_xyz_array(msg)
+                    points_radar, snr_radar, noise_radar = self.pointcloud2_to_xyz_array(msg)
                     points_radar = points_radar.T
                     noise_radar = noise_radar.T
 
@@ -173,7 +174,7 @@ class ValidationDataset:
                                 f.write(' '.join(map(str, pose_flat)))
                                 f.write('\n')
 
-        # self.visualize_point_clouds(self.points, points_radar_all, snr_radar_all)
+        self.visualize_point_clouds(self.points, points_radar_all, snr_radar_all)
 
         fig, axs = plt.subplots(2, 2)
         snr_all_np = np.array(self.snr_all)
@@ -199,7 +200,8 @@ class ValidationDataset:
         model_path = output_dir / 'logistic_regression_model.pkl'
         clf = LogisticRegression()
         if model_path.is_file():
-            clf.load(str(model_path))
+            clf = joblib.load(str(model_path))
+
         else:
             clf.fit(X, y)
             joblib.dump(clf, model_path)
@@ -280,6 +282,8 @@ class ValidationDataset:
         points_snr = np.concatenate(snr_radar_window, axis=0)
         points_noise = np.concatenate(noise_radar_window, axis=0).T
 
+        print("total points", points_radar.shape[1])
+
         if len(points_radar) > 0:
             # TODO: Don't hardcode the calibrations, what about different setups
             radar_image_points = self.K @ points_radar
@@ -288,6 +292,7 @@ class ValidationDataset:
 
             depth_positive_mask = radar_depth > 0.0
             if depth_positive_mask.sum() > 0:
+                print("positive depth", depth_positive_mask.sum())
                 u = radar_image_points[0, depth_positive_mask]
                 v = radar_image_points[1, depth_positive_mask]
                 radar_depth = radar_depth[depth_positive_mask]
@@ -299,8 +304,17 @@ class ValidationDataset:
                 u_distorted, v_distorted = self.apply_distortion_equidistant(u.copy(), v.copy())
                 u_distorted, v_distorted = u_distorted / self.downscale, v_distorted / self.downscale
 
+                self.u_all += [x for x in u_distorted]
+                self.v_all += [x for x in v_distorted]
+                self.depth_all += [x for x in radar_depth]
+                self.snr_all += [x[0] for x in points_snr]
+                self.noise_all += [x[0] for x in points_noise]
+                self.distances_all += [x for x in radar_distances]
+
                 inside_image_mask = (u_distorted >= 0) & (u_distorted < width) & (v_distorted >= 0) & (v_distorted < height)
+                # import pdb; pdb.set_trace()
                 if inside_image_mask.sum() > 0:
+                    print("inside image", inside_image_mask.sum())
                     u_distorted = u_distorted[inside_image_mask]
                     v_distorted = v_distorted[inside_image_mask]
                     radar_depth = radar_depth[inside_image_mask]
@@ -309,12 +323,12 @@ class ValidationDataset:
                     radar_distances = radar_distances[inside_image_mask]
 
                     # Keep track of all image coordinates and their corresponding snr, noise
-                    self.u_all += [x for x in u_distorted]
-                    self.v_all += [x for x in v_distorted]
-                    self.depth_all += [x for x in radar_depth]
-                    self.snr_all += [x[0] for x in points_snr]
-                    self.noise_all += [x[0] for x in points_noise]
-                    self.distances_all += [x for x in radar_distances]
+                    # self.u_all += [x for x in u_distorted]
+                    # self.v_all += [x for x in v_distorted]
+                    # self.depth_all += [x for x in radar_depth]
+                    # self.snr_all += [x[0] for x in points_snr]
+                    # self.noise_all += [x[0] for x in points_noise]
+                    # self.distances_all += [x for x in radar_distances]
 
                     depth_prior = np.zeros((width, height), dtype=np.float32)
                     snr_prior = np.zeros((width, height), dtype=np.float32)
