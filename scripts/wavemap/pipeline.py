@@ -30,6 +30,21 @@ class WavemapPipeline:
             }
         })
 
+        # Renderer
+        projection_model = wave.Projector.create({
+            "type": "pinhole_camera_projector",
+            "width": 640,
+            "height": 480,
+            "fx": 600.215588472,
+            "fy": 600.915799608,
+            "cx": 317.051855594,
+            "cy": 216.108482975
+        })
+        log_odds_occupancy_threshold = 0.05
+        max_range = 120.0 # TODO: Think about where to constrain
+        default_depth_value = 0.0
+        self.renderer = wave.RaycastingRenderer(self.map, projection_model, log_odds_occupancy_threshold, max_range, default_depth_value)
+
         # Add a measurement integrator
         # TODO: What about distortion
         self.pipeline.add_integrator(
@@ -54,10 +69,10 @@ class WavemapPipeline:
                 "integration_method": {
                     "type": "hashed_chunked_wavelet_integrator",
                     "min_range": {
-                        "meters": 0.1
+                        "meters": 2.0 # Due to FOV, any close you don't see
                     },
                     "max_range": {
-                        "meters": 20.0
+                        "meters": 50.0
                     }
                 },
             })
@@ -66,6 +81,10 @@ class WavemapPipeline:
         self.pose_dict = self.read_pose_dict(dataset_dir)
 
         self.initial_pose = None
+
+        self.render_dir = self.dataset_dir / 'render'
+        if not self.render_dir.is_dir():
+            self.render_dir.mkdir(exist_ok=True)
 
     def read_pose_dict(self, dataset_dir):
         pose_mask = r'-?\d+\.\d+(?:e[+-]?\d+)?|-?\d+'
@@ -93,29 +112,33 @@ class WavemapPipeline:
         pose_np = np.linalg.inv(pose_np)
 
         if self.initial_pose is None:
-            self.initial_pose = np.linalg.inv(pose_np)
+            delta_pose = np.zeros((4, 4))
+            delta_pose[0, 0] = 1.0
+            delta_pose[1, 2] = 1.0
+            delta_pose[2, 1] = -1.0
+            delta_pose[3, 3] = 1.0
+            self.initial_pose = delta_pose @ np.linalg.inv(pose_np)
         image = wave.Image(depth_prediction_np)
         pose = wave.Pose(self.initial_pose @ pose_np)
 
         # Integrate the depth image
         self.pipeline.run_pipeline(["rmv"], wave.PosedImage(pose, image))
 
-        decay_factor = 0.9
+        decay_factor = 0.95
         wave.edit.multiply(self.map, decay_factor)
 
         # Remove map nodes that are no longer needed
         self.map.prune()
 
-        translation = np.array([0.0, 0.0, 0.0])
-        rotation = wave.Rotation(x=-0.7071068, y=0, z=0, w=0.7071068)
-        transformation = wave.Pose(rotation, translation)
-        map_transformed = wave.edit.transform(self.map, transformation)
-
         # Save the map
         print(f"Saving map of size {self.map.memory_usage} bytes")
-        map_transformed.store('/home/asl/Downloads/output.wvmp')
-
+        self.map.store('/home/asl/Downloads/output.wvmp')
         self.integration_counter += 1
+
+        depth_image = self.renderer.render(pose)
+        plt.imsave(self.render_dir / f'{index:05d}_r.png', depth_image.data.T)
+
+        time.sleep(1)
 
     def prediction_callback(self, index, depth_prediction):
         depth_prediction_np = depth_prediction.cpu().numpy().squeeze()
