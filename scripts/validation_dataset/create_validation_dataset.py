@@ -554,7 +554,8 @@ class ValidationDataset:
                         R[j, :] = np.array(lines[i + j + 1].split(), dtype=float)
                     data_dict['R'] = R
 
-        yield data_dict
+                    # This is a complete dict
+                    yield data_dict
 
     def read_pointcloud(self, pointcloud_file, offset):
         points = np.array([[]])
