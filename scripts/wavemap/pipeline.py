@@ -4,11 +4,14 @@ import numpy as np
 import pywavemap as wave
 import radarmeetsvision as rmv
 import re
+import time
 
 from pathlib import Path
 
 class WavemapPipeline:
     def __init__(self, dataset_dir):
+        self.integration_counter = 0
+
         self.map = wave.Map.create({
             "type": "hashed_chunked_wavelet_octree",
             "min_cell_width": {
@@ -88,11 +91,31 @@ class WavemapPipeline:
 
     def integrate_wavemap(self, depth_prediction_np, pose_np, index):
         pose_np = np.linalg.inv(pose_np)
+
+        if self.initial_pose is None:
+            self.initial_pose = np.linalg.inv(pose_np)
         image = wave.Image(depth_prediction_np)
-        pose = wave.Pose(pose_np)
+        pose = wave.Pose(self.initial_pose @ pose_np)
 
         # Integrate the depth image
         self.pipeline.run_pipeline(["rmv"], wave.PosedImage(pose, image))
+
+        decay_factor = 0.9
+        wave.edit.multiply(self.map, decay_factor)
+
+        # Remove map nodes that are no longer needed
+        self.map.prune()
+
+        translation = np.array([0.0, 0.0, 0.0])
+        rotation = wave.Rotation(x=-0.7071068, y=0, z=0, w=0.7071068)
+        transformation = wave.Pose(rotation, translation)
+        map_transformed = wave.edit.transform(self.map, transformation)
+
+        # Save the map
+        print(f"Saving map of size {self.map.memory_usage} bytes")
+        map_transformed.store('/home/asl/Downloads/output.wvmp')
+
+        self.integration_counter += 1
 
     def prediction_callback(self, index, depth_prediction):
         depth_prediction_np = depth_prediction.cpu().numpy().squeeze()
@@ -114,17 +137,8 @@ class WavemapPipeline:
 
             print(f"Integrating measurement {index}")
             self.integrate_wavemap(depth_prediction_np.T, pose_np, index)
-            if i > 50:
-                break
 
     def finalize(self):
-        # Remove map nodes that are no longer needed
-        self.map.prune()
-
-        # Save the map
-        print(f"Saving map of size {self.map.memory_usage} bytes")
-        self.map.store('/home/asl/Downloads/output.wvmp')
-
         del self.pipeline, self.map
 
 def main(args):
@@ -148,6 +162,7 @@ def main(args):
 
     predictions_dir = Path(args.dataset) / 'prediction'
     if not predictions_dir.is_dir():
+        print("Running validation")
         predictions_dir.mkdir(exist_ok=True)
         interface.validate_epoch(0, loader, iteration_callback=wp.prediction_callback)
     else:
