@@ -107,11 +107,12 @@ def process_npy_files(top_directory):
             center_field = matrix[start_x:end_x, start_y:end_y]
 
             # Compute the average
-            STEREO_TO_IMU_DEPTH_CALIB = 0.04
-            avg_value = np.mean(center_field) + STEREO_TO_IMU_DEPTH_CALIB
-
-            # Append the result as (index, average value)
-            averages.append((timestamp_dict[index], avg_value))
+            if np.mean(center_field) > 0.0:
+                STEREO_TO_IMU_DEPTH_CALIB = 0.04
+                avg_value = np.mean(center_field) + STEREO_TO_IMU_DEPTH_CALIB
+                averages.append((timestamp_dict[index], avg_value))
+            else:
+                averages.append((timestamp_dict[index], None))
 
             # Store averages for plotting
     averages_np = np.array(averages)
@@ -121,8 +122,11 @@ def process_npy_files(top_directory):
     # Write the averages to a file in the same folder
     try:
         with open(averages_file, "w") as f:
-            for index, avg in averages:
-                f.write(f"{avg}\n")
+            for index, avg in averages_np:
+                if avg is not None:
+                    f.write(f"{avg}\n")
+                else:
+                    f.write("NONE\n")
         print(f"Processed folder: {top_directory}")
     except Exception as e:
         print(f"Error writing output file for folder {top_directory}: {e}")

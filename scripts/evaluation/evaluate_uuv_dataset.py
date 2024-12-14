@@ -23,15 +23,18 @@ class UUVResult:
         os.makedirs(self.dir, exist_ok=True)
 
     def save_output(self, index, depth_prediction):
+        depth_prediction_np = np.zeros((480, 640))
+        npy_file = str(self.dir / f"{index}.npy")
         if depth_prediction is not None:
             depth_prediction_np = depth_prediction.squeeze().cpu().numpy()
             plt.imsave(str(self.dir / f"{index}.jpg"), depth_prediction_np, cmap='viridis')
-            np.save(str(self.dir / f"{index}.npy"), depth_prediction_np)
+
+        np.save(npy_file, depth_prediction_np)
+
 
 def main():
     parser = argparse.ArgumentParser(description='Purely evalute a network')
     parser.add_argument('--dataset', type=str, required=True, help='Path to the dataset directory')
-    parser.add_argument('--output', type=str, required=True, help='Path to the output directory')
     parser.add_argument('--network', type=str, help='Path to the network file')
     args = parser.parse_args()
     rmv.setup_global_logger()
