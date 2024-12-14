@@ -18,6 +18,8 @@ from torch.utils.data import Dataset
 from torchvision.transforms import Compose
 from scipy.spatial import cKDTree
 
+import matplotlib.pyplot as plt
+
 from .transform import Resize, PrepareForNet, Crop, NormalizeImage
 
 logger = logging.getLogger(__name__)
