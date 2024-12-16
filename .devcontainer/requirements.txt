@@ -2,5 +2,9 @@ colorlog
 git+https://github.com/ethz-asl/wavemap#subdirectory=library/python
 laspy
 nanobind
+open3d
+piexif
+pyproj
+python-xmp-toolkit
 scikit-build-core
 typing_extensions
