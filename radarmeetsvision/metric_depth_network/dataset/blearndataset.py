@@ -49,12 +49,10 @@ class BlearnDataset(Dataset):
 
         self.rgb_dir = self.dir / "rgb"
         self.rgb_template = "{:05d}_rgb.jpg"
-        self.rgb_template_alt = "{:04d}_rgb.jpg"
         self.rgb_mask = r'([0-9]*)_rgb.jpg'
 
         self.depth_dir = self.dir / "depth"
         self.depth_template = "{:05d}_d.npy"
-        self.depth_template_alt = "{:04d}_d.npy"
         self.depth_normalized_template = "{:05d}_dn.npy"
         self.depth_min, self.depth_max, self.depth_range = self.get_depth_range()
 
@@ -114,10 +112,6 @@ class BlearnDataset(Dataset):
         index = int(self.filelist[item])
         img_path = self.rgb_dir / self.rgb_template.format(index)
 
-        # TODO: Fix properly, screwed up the hypersim dataset with :04d
-        if not img_path.is_file():
-            img_path = self.rgb_dir / self.rgb_template_alt.format(index)
-
         image_cv = cv2.imread(str(img_path))
         image = cv2.cvtColor(image_cv, cv2.COLOR_BGR2RGB) / 255.0
 
@@ -152,14 +146,9 @@ class BlearnDataset(Dataset):
     def get_depth(self, index):
         depth = None
         depth_path = self.depth_dir / self.depth_template.format(index)
-        depth_path_alt = self.depth_dir / self.depth_template_alt.format(index)
         depth_normalized_path = self.depth_dir / self.depth_normalized_template.format(index)
         if depth_path.is_file():
             depth = np.load(depth_path)
-
-        # TODO: Fix properly, screwed up the hypersim dataset with :04d
-        elif depth_path_alt.is_file():
-            depth = np.load(depth_path_alt)
 
         elif depth_normalized_path.is_file():
             if self.depth_range is not None and self.depth_min is not None:
@@ -240,7 +229,7 @@ class BlearnDataset(Dataset):
         if self.depth_prior_dir.is_dir():
             depth_prior = np.load(str(self.depth_prior_dir / self.depth_prior_template.format(index))).astype(np.float32)
             # TODO: Better detecting if dataset is normalized or not
-            if not (depth_prior > 0.0).any() and self.depth_min is not None and self.depth_range is not None:
+            if (depth_prior > 0.0).any() and depth_prior.max() <= 1.0 and self.depth_min is not None and self.depth_range is not None:
                 depth_prior_valid_mask = (depth_prior > 0.0) & (depth_prior <= 1.0)
                 depth_prior[depth_prior_valid_mask] *= self.depth_range + self.depth_min
 
@@ -256,29 +245,42 @@ class BlearnDataset(Dataset):
         number_of_points = 50
         radius_prior_pixel = 5
         maximum_number_of_corners = 5
-        height, width = img_copy.shape[0], img_copy.shape[1]
+        height, width = img_copy.shape[:2]
 
         circular_mask = self.create_circular_mask(2 * height, 2 * width, radius=radius_prior_pixel)
         depth_prior = np.zeros((height, width), dtype=np.float32)
         img = cv2.cvtColor(img_copy, cv2.COLOR_BGR2GRAY)
         corners = cv2.goodFeaturesToTrack(img, number_of_points, quality_level, minimum_distance)
 
+        def remove_duplicates(corners, threshold=10.0):
+            """Remove duplicate corners based on a threshold distance."""
+            unique_corners = []
+            for corner in corners:
+                x, y = corner
+                if all(np.linalg.norm(np.array([x, y]) - np.array([ux, uy])) > threshold for ux, uy in unique_corners):
+                    unique_corners.append((x, y))
+            return unique_corners
+
         if corners is not None:
             corners = corners.squeeze()
+            corners = remove_duplicates(corners)
+
+            # Shuffle and limit the number of corners
             random.shuffle(corners)
             num_corners_to_use = random.randint(1, min(len(corners), maximum_number_of_corners))
             good_corners = 0
 
             # Process the selected corners
-            for c in corners:
+            for c in corners[:num_corners_to_use]:
                 if isinstance(c, np.ndarray):
                     x, y = c
-                    translated_mask = circular_mask[int(height - y):int(2 * height - y), int(width - x):int(2 * width - x)]
+                    translated_mask = circular_mask[int(height - y):int(2 * height - y), 
+                                                    int(width - x):int(2 * width - x)]
                     depth_at_prior = np.mean(depth_prior[translated_mask & ~np.isnan(depth_prior)])
                     if depth_at_prior == 0.0:
                         depth_at_corner = np.mean(depth[translated_mask & ~np.isnan(depth)])
 
-                        if depth_at_corner > self.depth_min and depth_at_corner < self.depth_max:
+                        if self.depth_min < depth_at_corner < self.depth_max:
                             depth_prior += depth_at_corner * translated_mask
                             good_corners += 1
 

@@ -150,9 +150,10 @@ class ValidationDataset:
                         index = intrinsics_dict[timestamp]['index']
 
                         if points_radar_all is None:
-                            points_radar_all = points_inertial[:3, :]
-                            snr_radar_all = snr_radar
-                            outlier_mask_all = outlier_mask
+                            if len(snr_radar):
+                                points_radar_all = points_inertial[:3, :]
+                                snr_radar_all = snr_radar
+                                outlier_mask_all = outlier_mask
 
                         else:
                             points_radar_all = np.hstack((points_radar_all, points_inertial[:3, :]))
@@ -183,7 +184,7 @@ class ValidationDataset:
                                 f.write(' '.join(map(str, pose_flat)))
                                 f.write('\n')
 
-        self.visualize_point_clouds(self.points, points_radar_all, outlier_mask_all)
+        # self.visualize_point_clouds(self.points, points_radar_all, outlier_mask_all)
 
         fig, axs = plt.subplots(3, 2)
         snr_all_np = np.array(self.snr_all)
@@ -309,8 +310,8 @@ class ValidationDataset:
             radar_depth = radar_image_points[2, :].copy()
             radar_image_points /= radar_depth
 
-            point_mask = (radar_depth > 0.0) & (radar_depth <= 100.0)
-            # point_mask = (radar_distances / radar_depth) < 0.05
+            # This is a good compromise to reject noise
+            point_mask = (radar_depth > 0.0) & (radar_depth <= 10.0)
             if point_mask.sum() > 0:
                 u = radar_image_points[0, point_mask]
                 v = radar_image_points[1, point_mask]
