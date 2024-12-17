@@ -18,7 +18,7 @@ if dn not in sys.path:
 from src.blender import Blender
 
 def main():
-    b = Blender(config_file="config/config_rural_area_demo.yml")
+    b = Blender(config_file="config/config_rhone.yml")
     b.start()
 
 
