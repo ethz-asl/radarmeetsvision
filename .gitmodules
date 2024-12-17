@@ -1,0 +1,3 @@
+[submodule "scripts/wavemap/wavemap"]
+	path = scripts/wavemap/wavemap
+	url = git@github.com:marcojob/wavemap.git
