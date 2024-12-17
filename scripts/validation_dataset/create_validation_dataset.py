@@ -108,9 +108,7 @@ class ValidationDataset:
         snr_radar_all = None
         outlier_mask_all = None
 
-        logger.info("Loading bag")
         with rosbag.Bag(self.bag_file, 'r') as bag:
-            logger.info("Loaded")
             for (topic, msg, t) in bag.read_messages(topics=topics):
                 if topic == '/radar/cfar_detections':
                     # Transform PC to camera frame
@@ -122,7 +120,7 @@ class ValidationDataset:
                         points_radar_window.append(self.R_camera_radar @ points_radar + self.t_camera_radar)
                         snr_radar_window.append(snr_radar)
                         noise_radar_window.append(noise_radar)
-                        if len(points_radar_window) > 1:
+                        if len(points_radar_window) > 3:
                             points_radar_window.pop(0)
                             snr_radar_window.pop(0)
                             noise_radar_window.pop(0)
