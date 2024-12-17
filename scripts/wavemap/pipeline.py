@@ -4,14 +4,11 @@ import numpy as np
 import pywavemap as wave
 import radarmeetsvision as rmv
 import re
-import time
 
 from pathlib import Path
 
 class WavemapPipeline:
     def __init__(self, dataset_dir):
-        self.integration_counter = 0
-
         self.map = wave.Map.create({
             "type": "hashed_chunked_wavelet_octree",
             "min_cell_width": {
