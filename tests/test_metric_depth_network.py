@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import time
 import unittest
 
 from .context import *
@@ -25,3 +26,24 @@ class MetricDepthNetworkTestSuite(unittest.TestCase):
 
         # THEN: The output depth is valid
         self.assertFalse(np.isnan(depth).any())
+
+    def test_inference_time(self):
+        # GIVEN: A metric depth anything V2 network
+        model = get_model(None, True, 'vitb', 120.0, 2)
+        device = get_device()
+        print(f"Using device {device}")
+        model = model.to(device).eval()
+
+        # WHEN: Random matrices are inferred
+        total_time = 0
+        N = 10
+        if device != 'cpu':
+            N = 500
+
+        for i in range(N):
+            img = torch.rand((1, 4, 518, 518), device=device, requires_grad=False)
+            start_time = time.monotonic()
+            prediction = model.forward(img)
+            total_time += (time.monotonic() - start_time)
+
+        print(f"Average time per iteration: {total_time/float(N)}")
