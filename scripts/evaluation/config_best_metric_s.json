@@ -1,0 +1,20 @@
+{
+    "scenarios": {
+        "Industrial Hall": "maschinenhalle0",
+        "Agricultural Field": "outdoor3",
+        "Rhône Glacier": "rhone_flight"
+    },
+    "use_depth_prior": false,
+    "output_channels": 1,
+    "relative_depth": 0,
+    "depth_min": 0.19983673095703125,
+    "depth_max": 120.49285888671875,
+    "height": 480,
+    "width": 640,
+    "encoder": "vits",
+    "index": {
+        "maschinenhalle0": [0, -1],
+        "outdoor3": [0, -1],
+        "rhone_flight": [1205, 1505]
+    }
+}
