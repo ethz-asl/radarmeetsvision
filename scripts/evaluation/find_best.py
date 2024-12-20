@@ -40,6 +40,8 @@ class Evaluation:
         self.interface.set_depth_range((config['depth_min'], config['depth_max']))
         self.interface.set_output_channels(config['output_channels'])
         self.interface.set_use_depth_prior(config['use_depth_prior'])
+        self.interface.set_relative_depth(config['relative_depth'])
+
         self.interface.load_model(pretrained_from=network_key)
         self.interface.set_size(config['height'], config['width'])
         self.interface.set_batch_size(1)
@@ -90,7 +92,7 @@ def main():
 
             # NOTE: Consider only 25 epochs for all, no improvements observed after that
             index = int(out.group(1))
-            if index < 24:
+            if index <= 24:
                 abs_rel = 0.0
                 for scenario_key in config['scenarios'].keys():
                     logger.info(f'Evaluation: {scenario_key} {pth_file}')

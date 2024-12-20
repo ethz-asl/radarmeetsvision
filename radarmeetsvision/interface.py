@@ -32,6 +32,7 @@ class Interface:
         self.optimizer = None
         self.output_channels = None
         self.previous_best = self.reset_previous_best()
+        self.relative_depth = None
         self.results = None
         self.results_path = None
         self.use_depth_prior = None
@@ -78,6 +79,9 @@ class Interface:
         else:
             logger.error(f'{self.results_path} does not exist')
 
+    def set_relative_depth(self, relative_depth):
+        self.relative_depth = bool(relative_depth)
+
     def get_results(self):
         return self.results, self.results_per_sample
 
@@ -88,8 +92,14 @@ class Interface:
             logger.info(f'Using encoder: {self.encoder}')
             logger.info(f'Using max depth: {self.max_depth}')
             logger.info(f'Using output channels: {self.output_channels}')
+            logger.info(f'Using relative depth: {self.relative_depth}')
 
-            self.model = get_model(pretrained_from, self.use_depth_prior, self.encoder, self.max_depth, output_channels=self.output_channels)
+            # The network should predict from 0 to 1
+            max_depth = self.max_depth
+            if self.relative_depth:
+                max_depth = 1.0
+
+            self.model = get_model(pretrained_from, self.use_depth_prior, self.encoder, max_depth, output_channels=self.output_channels)
             self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
             self.model.to(self.device)
         else:
@@ -182,7 +192,6 @@ class Interface:
         else:
             depth_target, mask = None, None
 
-
         return image, depth_prior, depth_target, mask
 
 
@@ -197,7 +206,7 @@ class Interface:
             image, _, depth_target, mask = self.prepare_sample(sample, random_flip=True)
 
             prediction = self.model(image)
-            depth_prediction = get_depth_from_prediction(prediction, image)
+            depth_prediction = get_depth_from_prediction(prediction, image, relative_depth=self.relative_depth)
             if depth_prediction is not None and mask.sum() > 0:
                 loss = self.criterion(depth_prediction, depth_target, mask)
                 if loss is not None:
@@ -227,7 +236,7 @@ class Interface:
                 with torch.no_grad():
                     prediction = self.model(image)
                     prediction = interpolate_shape(prediction, depth_target)
-                    depth_prediction = get_depth_from_prediction(prediction, image)
+                    depth_prediction = get_depth_from_prediction(prediction, image, relative_depth=self.relative_depth)
 
                     # TODO: Expand on this interface
                     if iteration_callback is not None:

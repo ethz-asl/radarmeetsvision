@@ -51,10 +51,12 @@ def setup_global_logger(output_dir=None):
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(logging.INFO)
         file_formatter = logging.Formatter(
-            '%%Y-%%m-%%d %%H:%%M:%%S - %(name)s - %(levelname)s - %(message)s'
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
+            datefmt='%Y-%m-%d %H:%M:%S'
         )
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
+
 
 def load_config(config_path):
     with open(config_path, 'r') as file:

@@ -147,10 +147,12 @@ class BlearnDataset(Dataset):
         depth = None
         depth_path = self.depth_dir / self.depth_template.format(index)
         depth_normalized_path = self.depth_dir / self.depth_normalized_template.format(index)
+
         if depth_path.is_file():
             depth = np.load(depth_path)
 
         elif depth_normalized_path.is_file():
+            # TODO: This does not work probably
             if self.depth_range is not None and self.depth_min is not None:
                 depth_normalized = np.load(depth_normalized_path)
                 depth_valid_mask = (depth_normalized > 0.0) & (depth_normalized <= 1.0)
