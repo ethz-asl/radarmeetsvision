@@ -150,18 +150,17 @@ class Interface:
         loader = DataLoader(dataset, batch_size=self.batch_size, pin_memory=True, drop_last=True)
         return dataset, loader
 
-    def update_best_result(self, results, nsamples):
-        if nsamples:
-            logger.info('==========================================================================================')
-            logger.info('{:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}'.format(*tuple(results.keys())))
-            logger.info('{:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}'.format(*tuple([(v / nsamples).item() for v in results.values()])))
-            logger.info('==========================================================================================')
+    def update_best_result(self, results):
+        logger.info('==========================================================================================')
+        logger.info('{:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}'.format(*tuple(results.keys())))
+        logger.info('{:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}'.format(*tuple([v for v in results.values()])))
+        logger.info('==========================================================================================')
 
-            for k in results.keys():
-                if k in ['d1', 'd2', 'd3']:
-                    self.previous_best[k] = max(self.previous_best[k], (results[k] / nsamples).item())
-                else:
-                    self.previous_best[k] = min(self.previous_best[k], (results[k] / nsamples).item())
+        for k in results.keys():
+            if k in ['d1', 'd2', 'd3']:
+                self.previous_best[k] = max(self.previous_best[k], results[k])
+            else:
+                self.previous_best[k] = min(self.previous_best[k], results[k])
 
 
     def prepare_sample(self, sample, random_flip=False):
@@ -246,8 +245,13 @@ class Interface:
                     abs_rel = (self.results["abs_rel"]/nsamples).item()
                     logger.info(f'Iter: {i}/{len(val_loader)}, Absrel: {abs_rel:.3f}')
 
-        self.update_best_result(self.results, nsamples)
-        self.save_checkpoint(epoch)
+        # Save the results
+        if nsamples:
+            for k in self.results.keys():
+                self.results[k] = (self.results[k]/nsamples).item()
+
+            self.update_best_result(self.results)
+            self.save_checkpoint(epoch)
 
 
     def save_checkpoint(self, epoch):

@@ -95,7 +95,7 @@ def main():
                 for scenario_key in config['scenarios'].keys():
                     logger.info(f'Evaluation: {scenario_key} {pth_file}')
                     eval_obj = Evaluation(config, scenario_key, pth_file, args)
-                    results_dict = eval_obj.get_results_dict()
+                    results_dict = eval_obj.get_results()
                     abs_rel += results_dict['abs_rel']
 
                 abs_rel /= len(config['scenarios'].keys())
