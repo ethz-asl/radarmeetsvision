@@ -10,12 +10,12 @@ import logging
 import torch
 from datetime import datetime
 
-def get_device(min_memory_gb=8):
+def get_device(force_gpu=False, min_memory_gb=8):
     device_str = 'cpu'
     if torch.cuda.is_available():
         device = torch.cuda.get_device_properties(0)
         total_memory_gb = device.total_memory / (1024 ** 3)
-        if total_memory_gb > min_memory_gb:
+        if total_memory_gb > min_memory_gb or force_gpu:
             device_str = 'cuda'
     return device_str
 

@@ -18,12 +18,12 @@ from torch.utils.data import DataLoader
 logger = logging.getLogger(__name__)
 
 class Interface:
-    def __init__(self):
+    def __init__(self, force_gpu=False):
         self.batch_size = None
         self.criterion = None
         self.depth_min_max = None
         self.depth_prior_dir = None
-        self.device = get_device()
+        self.device = get_device(force_gpu=force_gpu)
         self.encoder = None
         self.lr = None
         self.max_depth = None
