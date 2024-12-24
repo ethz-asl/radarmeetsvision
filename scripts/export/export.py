@@ -50,9 +50,9 @@ def main(args):
     interface.load_model(pretrained_from=args.network)
 
     # Output directory for ONNX file
-    output_dir = Path(args.output_dir)
+    output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
-    onnx_path = output_dir / f"{args.encoder}_model.onnx"
+    onnx_path = output_dir / f"rmv_{args.encoder}.onnx"
 
     # Export the model to ONNX
     export_to_onnx(interface, onnx_path, input_size=(args.height, args.width), opset_version=args.opset)
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     parser.add_argument("--height", type=int, default=518, help="Input image height")
     parser.add_argument("--width", type=int, default=518, help="Input image width")
     parser.add_argument("--use-depth-prior", type=int, default=1, help="Whether to use depth prior (1 for yes, 0 for no)")
-    parser.add_argument("--output-dir", type=str, required=True, help="Directory to save the ONNX file")
+    parser.add_argument("--output", type=str, required=True, help="Directory to save the ONNX file")
     parser.add_argument("--opset", type=int, default=16, help="ONNX opset version")
     args = parser.parse_args()
 
