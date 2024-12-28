@@ -1,10 +1,12 @@
 import argparse
 import cv2
+import joblib
 import laspy
 import logging
 import matplotlib.pyplot as plt
 import multiprocessing as mp
 import numpy as np
+import open3d as o3d
 import pickle
 import re
 import rosbag
@@ -15,6 +17,8 @@ from pathlib import Path
 from cv_bridge import CvBridge
 from scipy.spatial.transform import Rotation
 from scipy.spatial import cKDTree
+from sklearn.linear_model import LogisticRegression, LinearRegression
+from sklearn.metrics import precision_score, recall_score, f1_score
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("dataset")
@@ -22,9 +26,11 @@ logger = logging.getLogger("dataset")
 class ValidationDataset:
     def __init__(self, input_dir):
         self.downscale = 2
+        self.offset_file = None
+        self.world_pointcloud_file = None
+        self.camera_parameters_file = None
+        self.shape = (480, 640)
 
-        self.snr_filter = 150 if 'outdoor' in str(input_dir) else 200
-        logger.info(f"Setting SNR to {self.snr_filter}")
         for file_path in input_dir.iterdir():
             if 'calibrated_camera_parameters.txt' in str(file_path):
                 self.camera_parameters_file = file_path
@@ -40,14 +46,20 @@ class ValidationDataset:
 
         # TODO: Don't hardcode the calibrations, what about different setups
         # Correct for aesch and maschinenhalle
-        self.R_camera_radar = np.array(([[-9.99537680e-01, 2.06396371e-03, -3.03342592e-02],
-                                         [ 3.03920764e-02, 3.94275324e-02, -9.98760127e-01],
-                                         [8.65399670e-04, 9.99220301e-01, 3.94720324e-02]]))
-        self.t_camera_radar = np.array([0.01140952, -0.0056055,  -0.02026767]).T
+        self.R_camera_radar = np.array(([[0.99993637, 0.00594794, -0.0095858],
+                                         [-0.00965354, 0.01146757, -0.99988765],
+                                         [-0.00583735, 0.99991655, 0.01152426]]))
+        self.t_camera_radar = np.array([[0.00755498, 0.00640742, -0.02652784]]).T
         self.K = np.array([[1200.4311769445228, 0.0, 634.1037111885645],
                            [0.0, 1201.8315992165312, 432.2169659507848],
                            [0.0, 0.0, 1.0]])
         self.distortion_coeffs_equidistant = [-0.12935247711303535, 0.06833088389569625, -0.0995869958615853, 0.04717896330175957]
+        self.u_all = []
+        self.v_all = []
+        self.depth_all = []
+        self.snr_all = []
+        self.noise_all = []
+        self.distances_all = []
 
 
     def generate(self):
@@ -60,12 +72,23 @@ class ValidationDataset:
         depth_prior_dir = output_dir / 'depth_prior'
         depth_prior_dir.mkdir(exist_ok=True)
 
+        # Empty pose file
+        pose_file = output_dir / 'pose_file.txt'
+        with pose_file.open('w') as f:
+            pass
+
         # Build the dict with depth GTs
         depth_dict_file = output_dir / 'depth_dict.pkl'
         intrinsics_dict_file = output_dir / 'intrinsics_dict.pkl'
+
+        # Read the offset and point cloud data
+        offset = self.read_offset(self.offset_file)
+        self.points = self.read_pointcloud(self.world_pointcloud_file, offset)
+        self.tree = cKDTree(self.points[:3, :].T)
+
         if not depth_dict_file.is_file() or not intrinsics_dict_file.is_file():
             logger.info("Computing depth dict")
-            depth_dict, intrinsics_dict = self.get_depth_dict(self.camera_parameters_file, self.offset_file, self.world_pointcloud_file)
+            depth_dict, intrinsics_dict = self.get_depth_dict()
             with depth_dict_file.open('wb') as f:
                 pickle.dump(depth_dict, f)
             with intrinsics_dict_file.open('wb') as f:
@@ -77,29 +100,30 @@ class ValidationDataset:
                 intrinsics_dict = pickle.load(f)
 
         topics = ['/image_raw', '/radar/cfar_detections', '/tf_static']
-        image_count = 0
         points_radar_window = []
         snr_radar_window = []
         noise_radar_window = []
         bridge = CvBridge()
-        R_camera_radar = None
-        t_camera_radar = None
+        points_radar_all = None
+        snr_radar_all = None
+        outlier_mask_all = None
 
         with rosbag.Bag(self.bag_file, 'r') as bag:
-            for i, (topic, msg, t) in enumerate(bag.read_messages(topics=topics)):
+            for (topic, msg, t) in bag.read_messages(topics=topics):
                 if topic == '/radar/cfar_detections':
                     # Transform PC to camera frame
                     points_radar, snr_radar, noise_radar = self.pointcloud2_to_xyz_array(msg)
                     points_radar = points_radar.T
+                    noise_radar = noise_radar.T
 
-                    # TODO: Fake point
                     if len(points_radar):
-                        # R_camera_radar @ points_radar + t_camera_radar
-                        points_radar_window.append(self.R_camera_radar @ points_radar)
+                        points_radar_window.append(self.R_camera_radar @ points_radar + self.t_camera_radar)
                         snr_radar_window.append(snr_radar)
+                        noise_radar_window.append(noise_radar)
                         if len(points_radar_window) > 3:
                             points_radar_window.pop(0)
                             snr_radar_window.pop(0)
+                            noise_radar_window.pop(0)
 
                 elif topic == '/image_raw':
                     timestamp = t.to_nsec()
@@ -109,25 +133,158 @@ class ValidationDataset:
                         if timestamp not in depth_dict.keys() and timestamp_alt in depth_dict.keys():
                             timestamp = timestamp_alt
 
+                        # TODO: This is a bit ugly code here, and it is only for debugging
+                        pose = intrinsics_dict[timestamp]['pose']
+                        R = pose[:3, :3]
+                        t = pose[:3, 3]
+                        R_inv = R.T
+                        t_inv = -R_inv.dot(t)
+                        pose_inv = np.hstack((R_inv, t_inv.reshape(-1, 1)))
+                        points_window_all = np.hstack(points_radar_window)
+                        points_inertial = pose_inv @ np.vstack((points_window_all, np.ones(points_window_all.shape[1])))
+                        distances, _ = self.tree.query(points_inertial.T, k=3)
+                        radar_distances = np.mean(distances, axis=1)
+
                         img = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-                        depth_prior = self.get_depth_prior(points_radar_window, snr_radar_window, depth_dict[timestamp])
+                        depth_prior, outlier_mask = self.get_depth_prior(points_radar_window, snr_radar_window, noise_radar_window, radar_distances)
+                        index = intrinsics_dict[timestamp]['index']
+
+                        if points_radar_all is None:
+                            if len(snr_radar):
+                                points_radar_all = points_inertial[:3, :]
+                                snr_radar_all = snr_radar
+                                outlier_mask_all = outlier_mask
+
+                        else:
+                            points_radar_all = np.hstack((points_radar_all, points_inertial[:3, :]))
+                            outlier_mask_all = np.hstack((outlier_mask_all, outlier_mask))
+
+                            if len(snr_radar):
+                                snr_radar_all = np.vstack((snr_radar_all, snr_radar))
 
                         if depth_prior is not None:
                             img = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
                             img = cv2.resize(img, (img.shape[1]//self.downscale, img.shape[0]//self.downscale))
-                            img_file = rgb_dir / f'{image_count:05d}_rgb.jpg'
+                            img_file = rgb_dir / f'{index:05d}_rgb.jpg'
                             cv2.imwrite(str(img_file), img)
 
                             # Write the depth gt
-                            depth_file = output_dir / 'depth' / f'{image_count:05d}_d.npy'
+                            depth_file = output_dir / 'depth' / f'{index:05d}_d.npy'
                             np.save(depth_file, depth_dict[timestamp])
-                            plt.imsave(output_dir / 'depth' / f'{image_count:05d}_d.jpg', depth_dict[timestamp], vmin=0,vmax=15)
+                            plt.imsave(output_dir / 'depth' / f'{index:05d}_d.jpg', depth_dict[timestamp], vmin=0,vmax=15, cmap='viridis')
 
-                            depth_prior_file = output_dir / 'depth_prior' / f'{image_count:05d}_ra.npy'
+                            depth_prior_file = output_dir / 'depth_prior' / f'{index:05d}_ra.npy'
                             np.save(depth_prior_file, depth_prior)
-                            plt.imsave(output_dir / 'depth_prior' / f'{image_count:05d}_ra.jpg', depth_prior, vmin=0,vmax=15)
+                            plt.imsave(output_dir / 'depth_prior' / f'{index:05d}_ra.jpg', depth_prior, vmin=0,vmax=15, cmap='viridis')
 
-                            image_count += 1
+                            # Write pose
+                            pose_flat = intrinsics_dict[timestamp]['pose'].flatten()
+                            with pose_file.open('a') as f:
+                                f.write(f'{index}: ')
+                                f.write(' '.join(map(str, pose_flat)))
+                                f.write('\n')
+
+        # self.visualize_point_clouds(self.points, points_radar_all, outlier_mask_all)
+
+        fig, axs = plt.subplots(3, 2)
+        snr_all_np = np.array(self.snr_all)
+        u_all_np = np.array(self.u_all)
+        v_all_np = np.array(self.v_all)
+        noise_all_np = np.array(self.noise_all)
+        depth_all_np = np.array(self.depth_all)
+        distances_all_np = np.array(self.distances_all)
+
+        # Normalize the values for color mapping
+        c_snr = (snr_all_np - snr_all_np.min()) / (snr_all_np.max() - snr_all_np.min())
+        c_noise = (noise_all_np - noise_all_np.min()) / (noise_all_np.max() - noise_all_np.min())
+        c_depth = (depth_all_np - depth_all_np.min()) / (depth_all_np.max() - depth_all_np.min())
+        c_distances = (distances_all_np - distances_all_np.min()) / (distances_all_np.max() - distances_all_np.min())
+
+        # Prepare the input features X
+        X = np.column_stack([u_all_np, v_all_np, depth_all_np, snr_all_np, noise_all_np])
+
+        # Create the target labels based on distance threshold (e.g., 0.5)
+        distance_ratio = distances_all_np / depth_all_np
+        y = (distance_ratio > 0.05).astype(int)  # 1 if outlier, 0 if not
+
+        # Train the Logistic Regression model
+        model_path = output_dir / 'logistic_regression_model.pkl'
+        clf = LogisticRegression()
+        if model_path.is_file():
+            clf = joblib.load(str(model_path))
+        else:
+            clf.fit(X, y)
+            joblib.dump(clf, model_path)
+
+        # Predict the outlier mask (outlier_mask should be a binary array with same length as X)
+        outlier_mask = clf.predict(X).astype(bool)
+        precision = precision_score(y, outlier_mask)
+        recall = recall_score(y, outlier_mask)
+        f1 = f1_score(y, outlier_mask)
+
+        print(f"Precision: {precision:.2f}")
+        print(f"Recall: {recall:.2f}")
+        print(f"F1 Score: {f1:.2f}")
+        print(clf.coef_)
+
+        # Plot the points for outliers using predicted mask
+        axs[0, 0].invert_yaxis()
+        axs[0, 0].scatter(u_all_np[outlier_mask], v_all_np[outlier_mask], c='r')
+        axs[0, 0].scatter(u_all_np[~outlier_mask], v_all_np[~outlier_mask], c='b')
+        axs[0, 0].set_aspect('equal')
+
+        axs[0, 1].scatter(depth_all_np[outlier_mask], distance_ratio[outlier_mask], c='r')
+        axs[0, 1].scatter(depth_all_np[~outlier_mask], distance_ratio[~outlier_mask], c='b')
+        axs[0, 1].set_ylabel("Distances [m]")
+
+        axs[1, 0].scatter(depth_all_np[outlier_mask], snr_all_np[outlier_mask], c='r')
+        axs[1, 1].scatter(depth_all_np[~outlier_mask], snr_all_np[~outlier_mask], c='b')
+        axs[1, 1].scatter(depth_all_np[outlier_mask], snr_all_np[outlier_mask], c='r', alpha=0.25)
+        axs[1, 0].set_xlim((0, 25))
+        axs[1, 1].set_xlim((0, 25))
+        axs[1, 0].set_xlabel("Depth [m]")
+        axs[1, 0].set_ylabel("SNR [0.1 dB]")
+        axs[1, 1].set_xlabel("Depth [m]")
+        axs[1, 1].set_ylabel("SNR [0.1 dB]")
+
+        axs[2, 0].scatter(v_all_np[outlier_mask], snr_all_np[outlier_mask], c='r')
+        axs[2, 0].scatter(v_all_np[~outlier_mask], snr_all_np[~outlier_mask], c='b')
+        axs[2, 0].set_xlabel("v [px]")
+        axs[2, 0].set_ylabel("SNR [0.1 dB]")
+
+        axs[2, 1].scatter(depth_all_np[~outlier_mask], noise_all_np[~outlier_mask], c='b')
+        axs[2, 1].scatter(depth_all_np[outlier_mask], noise_all_np[outlier_mask], c='r', alpha=0.25)
+        axs[2, 1].set_xlabel("Depth [m]")
+        axs[2, 1].set_ylabel("Noise [0.1 dB]")
+
+        plt.tight_layout()
+        plt.show()
+
+
+    def visualize_point_clouds(self, points, points_radar_all, outlier_mask):
+        # First point cloud: points from intrinsics_dict (normal point cloud)
+        pc = points[:3, :].T
+
+        # Create the Open3D PointCloud object for pc
+        point_cloud1 = o3d.geometry.PointCloud()
+        point_cloud1.points = o3d.utility.Vector3dVector(pc)
+        point_cloud1.paint_uniform_color([0, 0, 0])  # Black dots
+
+        # Second point cloud: points_radar_all (colored by SNR)
+        radar_pc = points_radar_all[:, outlier_mask].T
+
+        # Create the Open3D PointCloud object for radar points
+        point_cloud2 = o3d.geometry.PointCloud()
+        point_cloud2.points = o3d.utility.Vector3dVector(radar_pc)
+
+        # Visualization
+        vis = o3d.visualization.Visualizer()
+        vis.create_window()
+        vis.add_geometry(point_cloud1)
+        vis.add_geometry(point_cloud2)
+        vis.run()
+        vis.destroy_window()
+
 
     def pointcloud2_to_xyz_array(self, cloud_msg):
         # Convert PointCloud2 to a list of points (x, y, z)
@@ -136,31 +293,32 @@ class ValidationDataset:
         noise = np.array(list(pc2.read_points(cloud_msg, field_names=("noise"), skip_nans=True)))
         return points, snr, noise
 
-    def get_depth_prior(self, points_radar_window, snr_radar_window, depth):
-        height, width = depth.shape
+    def get_depth_prior(self, points_radar_window, snr_radar_window, noise_radar_window, radar_distances):
+        height, width = self.shape
         radius_prior_pixel = 5
         circular_mask = self.create_circular_mask(2 * width, 2 * height, radius=radius_prior_pixel)
         depth_prior = None
 
+        # Points radar is already in camera frame
         points_radar = np.concatenate(points_radar_window, axis=1)
         points_snr = np.concatenate(snr_radar_window, axis=0)
-
-        snr_filter = points_snr[:, 0] > self.snr_filter
-        points_radar = points_radar[:, snr_filter]
-        points_snr = points_snr[snr_filter, :]
+        points_noise = np.concatenate(noise_radar_window, axis=1).T
 
         if len(points_radar) > 0:
             # TODO: Don't hardcode the calibrations, what about different setups
             radar_image_points = self.K @ points_radar
             radar_depth = radar_image_points[2, :].copy()
             radar_image_points /= radar_depth
-            
-            depth_positive_mask = radar_depth > 0.0
-            if depth_positive_mask.sum() > 0:
-                u = radar_image_points[0, depth_positive_mask]
-                v = radar_image_points[1, depth_positive_mask]
-                radar_depth = radar_depth[depth_positive_mask]
-                points_snr = points_snr[depth_positive_mask]
+
+            # This is a good compromise to reject noise
+            point_mask = (radar_depth > 0.0) & (radar_depth <= 10.0)
+            if point_mask.sum() > 0:
+                u = radar_image_points[0, point_mask]
+                v = radar_image_points[1, point_mask]
+                radar_depth = radar_depth[point_mask]
+                points_snr = points_snr[point_mask]
+                points_noise = points_noise[point_mask]
+                radar_distances = radar_distances[point_mask]
 
                 # TODO: Don't hardcode the calibrations, what about different setups
                 u_distorted, v_distorted = self.apply_distortion_equidistant(u.copy(), v.copy())
@@ -172,6 +330,16 @@ class ValidationDataset:
                     v_distorted = v_distorted[inside_image_mask]
                     radar_depth = radar_depth[inside_image_mask]
                     points_snr = points_snr[inside_image_mask]
+                    points_noise = points_noise[inside_image_mask]
+                    radar_distances = radar_distances[inside_image_mask]
+
+                    # Keep track of all image coordinates and their corresponding snr, noise
+                    self.u_all += [x for x in u_distorted]
+                    self.v_all += [x for x in v_distorted]
+                    self.depth_all += [x for x in radar_depth]
+                    self.snr_all += [x[0] for x in points_snr]
+                    self.noise_all += [x[0] for x in points_noise]
+                    self.distances_all += [x for x in radar_distances]
 
                     depth_prior = np.zeros((width, height), dtype=np.float32)
                     snr_prior = np.zeros((width, height), dtype=np.float32)
@@ -183,28 +351,11 @@ class ValidationDataset:
 
                     depth_prior = depth_prior.T
 
-                    # depth_factor = np.zeros((height, width))
-                    # depth_factor[height//factor:2*height//factor, width//factor:2*width//factor] = depth
-                    # fig, axs = plt.subplots(1, 2)
-                    # axs.set_xlim([0, width])
-                    # axs.set_ylim([height, 0])
-                    # scatter = axs.scatter(u_distorted, self.transform_v_to_plt(v_distorted, height), c=radar_depth, vmin=0.0, vmax=5.0)
-                    # cbar = plt.colorbar(scatter, ax=axs, cmap='viridis')
-                    # cbar.set_label('Radar Depth')
-                    # scatter = axs[0].scatter(u_distorted, v_distorted, c=radar_depth, vmin=0.0, vmax=15.0)
-                    # cbar = plt.colorbar(scatter, ax=axs, cmap='viridis')
-                    # axs[0].imshow(depth, cmap='viridis', origin='upper', vmin=0.0, vmax=15.0)
-                    # axs[0].set_xlim([0, width])
-                    # axs[0].set_ylim([height, 0])
-                    # axs[1].imshow(depth_prior, vmin=0.0, cmap='viridis', vmax=15.0)
+        return depth_prior, point_mask
 
-                    # print(radar_depth, points_snr, points_noise)
-                    # plt.show()
-
-        return depth_prior
-
-    def process_camera_data(self, data_dict, points, offset):
+    def process_camera_data(self, data_dict, points):
         timestamp = data_dict['timestamp']
+        index = data_dict['index']
         K = data_dict['K']
         R = data_dict['R']
         t = data_dict['t']
@@ -212,55 +363,59 @@ class ValidationDataset:
         height = data_dict['height']
         radial_dist = data_dict['radial_dist']
         tangential_dist = data_dict['tangential_dist']
-
-        t_rotated = -R @ t
-        pose = np.concatenate((R, t_rotated), axis=1)
-        m = K @ pose
-
-        image_points = m @ points
-        depth_flat = image_points[2, :].copy()
-        depth_positive_mask = depth_flat > 0.0
-
         depth_dict = {}
         intrinsics_dict = {}
 
-        if depth_positive_mask.sum() > 0:
-            depth_flat = depth_flat[depth_positive_mask]
-            image_points_filtered = image_points[:, depth_positive_mask] / depth_flat
+        if timestamp is not None:
+            t_rotated = -R @ t
+            pose = np.concatenate((R, t_rotated), axis=1)
+            m = K @ pose
 
-            u, v = image_points_filtered[0, :], image_points_filtered[1, :]
+            image_points = m @ points
+            depth_flat = image_points[2, :].copy()
+            depth_positive_mask = depth_flat > 0.0
 
-            # Apply distortion to u, v before checking inside image bounds
-            u_distorted, v_distorted = self.apply_distortion_equidistant(u.copy(), v.copy())
+            if depth_positive_mask.sum() > 0:
+                depth_flat = depth_flat[depth_positive_mask]
+                image_points_filtered = image_points[:, depth_positive_mask] / depth_flat
+                points_filtered = points[:, depth_positive_mask]
 
-            # Check if distorted coordinates are within the image bounds
-            inside_image_mask = (u_distorted >= 0) & (u_distorted < width) & (v_distorted >= 0) & (v_distorted < height)
+                u, v = image_points_filtered[0, :], image_points_filtered[1, :]
 
-            if inside_image_mask.sum() > 0:
-                v_distorted = v_distorted[inside_image_mask]
-                u_distorted = u_distorted[inside_image_mask]
+                # Apply distortion to u, v before checking inside image bounds
+                u_distorted, v_distorted = self.apply_distortion_equidistant(u.copy(), v.copy())
 
-                # Use interpolation to assign depth values instead of direct pixel indexing
-                depth = self.interpolate_depth(u_distorted, v_distorted, u, v, depth_flat, height, width)
-                depth_dict[timestamp] = depth
-                intrinsics_dict[timestamp] = (K, radial_dist, tangential_dist)
+                # Check if distorted coordinates are within the image bounds
+                inside_image_mask = (u_distorted >= 0) & (u_distorted < width) & (v_distorted >= 0) & (v_distorted < height)
 
-        logger.info(f'Computed depth for {timestamp}')
+                if inside_image_mask.sum() > 0:
+                    v_distorted = v_distorted[inside_image_mask]
+                    u_distorted = u_distorted[inside_image_mask]
+                    points_camera = pose @ points_filtered[:, inside_image_mask]
+
+                    # Use interpolation to assign depth values instead of direct pixel indexing
+                    depth = self.interpolate_depth(u_distorted, v_distorted, u, v, depth_flat, height, width)
+                    depth_dict[timestamp] = depth
+                    intrinsics_dict[timestamp] = {'K': K,
+                                                  'radial_dist': radial_dist,
+                                                  'tangential_dist': tangential_dist,
+                                                  'index': index,
+                                                  'pose': pose,
+                                                  'points': points_camera
+                                                 }
+
+        logger.info(f'Computed depth for {timestamp}, {index}')
         return depth_dict, intrinsics_dict
 
 
-    def get_depth_dict(self, camera_parameters_file, offset_file, world_pointcloud_file):
-        # Read the offset and point cloud data
-        offset = self.read_offset(offset_file)
-        points = self.read_pointcloud(world_pointcloud_file, offset)
-
+    def get_depth_dict(self):
         # Prepare a multiprocessing pool
         pool = mp.Pool(mp.cpu_count())
 
         # Arguments for each process
         tasks = []
         for data_dict in self.get_next_camera(self.camera_parameters_file):
-            tasks.append((data_dict.copy(), points, offset))
+            tasks.append((data_dict.copy(), self.points))
 
         # Processing data in parallel using Pool.starmap
         results = pool.starmap(self.process_camera_data, tasks)
@@ -342,86 +497,92 @@ class ValidationDataset:
         return ud, vd
 
     def get_next_camera(self, camera_parameters_file):
-        with open(camera_parameters_file, "r") as f:
-            lines = f.readlines()
+        data_dict = {'timestamp': None, 'index': None, 'width': None, 'height': None, 'K': None, 't': None, 'R': None, 'radial_dist': None, 'tangential_dist': None}
+        if camera_parameters_file is not None:
+            with open(camera_parameters_file, "r") as f:
+                lines = f.readlines()
 
-        filename_mask = r'([0-9]*).jpg ([0-9]*) ([0-9]*)'
+            filename_mask = r'([0-9]*).jpg ([0-9]*) ([0-9]*)'
 
-        intrinsics_index = None
-        translation_index = None
-        radial_dist_index = None
-        tangential_dist_index = None
-        data_dict = {'timestamp': None, 'width': None, 'height': None, 'K': None, 't': None, 'R': None}
+            image_count = 0
+            intrinsics_index = None
+            translation_index = None
+            radial_dist_index = None
+            tangential_dist_index = None
 
-        for i in range(len(lines)):
-            line = lines[i]
-            if '.jpg' in line:
-                out = re.search(filename_mask, line)
-                if out is not None:
-                    data_dict['timestamp'] = int(out.group(1))
-                    data_dict['width'] = int(out.group(2))
-                    data_dict['height'] = int(out.group(3))
+            for i in range(len(lines)):
+                line = lines[i]
+                if '.jpg' in line:
+                    out = re.search(filename_mask, line)
+                    if out is not None:
+                        data_dict['timestamp'] = int(out.group(1))
+                        data_dict['width'] = int(out.group(2))
+                        data_dict['height'] = int(out.group(3))
+                        data_dict['index'] = image_count
 
-                    intrinsics_index = i + 1
-                    radial_dist_index = i + 4
-                    tangential_dist_index = i + 5
-                    translation_index = i + 6
+                        intrinsics_index = i + 1
+                        radial_dist_index = i + 4
+                        tangential_dist_index = i + 5
+                        translation_index = i + 6
+                        image_count += 1
 
-            elif intrinsics_index == i:
-                intrinsics_index = None
-                K = np.zeros((3, 3))
-                for j in range(3):
-                    K[j, :] = np.array(lines[i + j].split(), dtype=float)
-                data_dict['K'] = K
+                elif intrinsics_index == i:
+                    intrinsics_index = None
+                    K = np.zeros((3, 3))
+                    for j in range(3):
+                        K[j, :] = np.array(lines[i + j].split(), dtype=float)
+                    data_dict['K'] = K
 
-            elif radial_dist_index == i:
-                radial_dist_index = None
-                radial_dist = np.array(line.split(), dtype=float)
-                data_dict['radial_dist'] = radial_dist
+                elif radial_dist_index == i:
+                    radial_dist_index = None
+                    radial_dist = np.array(line.split(), dtype=float)
+                    data_dict['radial_dist'] = radial_dist
 
-            elif tangential_dist_index == i:
-                tangential_dist_index = None
-                tangential_dist = np.array(line.split(), dtype=float)
-                data_dict['tangential_dist'] = tangential_dist
+                elif tangential_dist_index == i:
+                    tangential_dist_index = None
+                    tangential_dist = np.array(line.split(), dtype=float)
+                    data_dict['tangential_dist'] = tangential_dist
 
-            elif translation_index == i:
-                translation_index = None
+                elif translation_index == i:
+                    translation_index = None
 
-                t = np.array(line.split(), dtype=float)
-                data_dict['t'] = t.reshape((3, 1))
+                    t = np.array(line.split(), dtype=float)
+                    data_dict['t'] = t.reshape((3, 1))
 
-                # Next 3 lines are rotation matrix
-                R = np.zeros((3, 3))
-                for j in range(3):
-                    R[j, :] = np.array(lines[i + j + 1].split(), dtype=float)
-                data_dict['R'] = R
+                    # Next 3 lines are rotation matrix
+                    R = np.zeros((3, 3))
+                    for j in range(3):
+                        R[j, :] = np.array(lines[i + j + 1].split(), dtype=float)
+                    data_dict['R'] = R
 
-                yield data_dict
-
+                    # This is a complete dict
+                    yield data_dict
 
     def read_pointcloud(self, pointcloud_file, offset):
-        points = None
-        ox = offset[0, 0]
-        oy = offset[0, 1]
-        oz = offset[0, 2]
-        with laspy.open(pointcloud_file) as fh:
-            las = fh.read()
-            points = np.vstack((las.x - ox, las.y - oy, las.z - oz, np.ones(fh.header.point_count)))
+        points = np.array([[]])
+        if pointcloud_file is not None:
+            ox = offset[0, 0]
+            oy = offset[0, 1]
+            oz = offset[0, 2]
+            with laspy.open(pointcloud_file) as fh:
+                las = fh.read()
+                points = np.vstack((las.x - ox, las.y - oy, las.z - oz, np.ones(fh.header.point_count)))
 
         return points
 
 
     def read_offset(self, offset_file):
-        offset_mask = r'([\.\-0-9]*) ([\.\-0-9]*) ([\.\-0-9]*)'
-        offset = None
-        with offset_file.open('r') as f:
-            lines = f.readlines()
+        offset = np.array([[0.0, 0.0, 0.0]])
+        if offset_file is not None:
+            offset_mask = r'([\.\-0-9]*) ([\.\-0-9]*) ([\.\-0-9]*)'
+            with offset_file.open('r') as f:
+                lines = f.readlines()
 
-        for line in lines:
-            out = re.search(offset_mask, line)
-            if out is not None:
-                offset = np.array([[float(out.group(1)), float(out.group(2)), float(out.group(3))]])
-                break
+            for line in lines:
+                out = re.search(offset_mask, line)
+                if out is not None:
+                    offset = np.array([[float(out.group(1)), float(out.group(2)), float(out.group(3))]])
+                    break
 
         return offset
 

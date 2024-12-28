@@ -1,4 +1,11 @@
 colorlog
 dt-apriltags
 laspy
+nanobind
+open3d
+piexif
+pyproj
+python-xmp-toolkit
+scikit-build-core
 scikit-image
+typing_extensions

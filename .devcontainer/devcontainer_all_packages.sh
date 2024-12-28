@@ -16,6 +16,7 @@ main() {
         gawk
         gnupg
         htop
+        libexempi8
         libgconf-2-4
         libnss3
         libusb-1.0-0
