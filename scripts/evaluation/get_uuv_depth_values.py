@@ -91,12 +91,12 @@ def process_npy_files(top_directory):
     for file_name in os.listdir(top_directory):
         if file_name.endswith(".npy"):
             index = int(file_name[:-4])
-            file_path = os.path.join(top_directory, file_name)
+            file_path = Path(top_directory) / file_name
 
-            matrix = np.load(file_path)
+            prediction = np.load(file_path)
 
             # Find the center 100x100 pixel field
-            h, w = matrix.shape
+            h, w = prediction.shape
             center_x, center_y = h // 2, w // 2
             start_x = max(center_x - WINDOW_SIZE//2, 0)
             start_y = max(center_y - WINDOW_SIZE//2, 0)
@@ -104,7 +104,7 @@ def process_npy_files(top_directory):
             # Adjust in case matrix dimensions are smaller than 100x100
             end_x = min(start_x + WINDOW_SIZE, h)
             end_y = min(start_y + WINDOW_SIZE, w)
-            center_field = matrix[start_x:end_x, start_y:end_y]
+            center_field = prediction[start_x:end_x, start_y:end_y]
 
             # Compute the average
             if np.mean(center_field) > 0.0:
@@ -113,6 +113,18 @@ def process_npy_files(top_directory):
                 averages.append((timestamp_dict[index], avg_value))
             else:
                 averages.append((timestamp_dict[index], None))
+
+            # Try to load the depth groundtruth
+            depth_file = Path(top_directory) / '..' / 'depth' / f'{index:05d}_d.npy'
+            if depth_file.is_file():
+                depth = np.load(depth_file)
+                depth_groundtruth_mask = depth > 0.0
+                avg_pred = prediction[depth_groundtruth_mask]
+                avg_gt = depth[depth_groundtruth_mask]
+                print(avg_pred, avg_gt)
+                absrel = (np.abs(avg_pred - avg_gt) / avg_gt).mean()
+                print(absrel)
+                import pdb; pdb.set_trace()
 
             # Store averages for plotting
     averages_np = np.array(averages)

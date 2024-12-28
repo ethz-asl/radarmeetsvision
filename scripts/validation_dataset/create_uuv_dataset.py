@@ -10,6 +10,8 @@ from cv_bridge import CvBridge
 from pathlib import Path
 from scipy.spatial.distance import cdist
 from sensor_msgs.msg import Image, CompressedImage
+from dt_apriltags import Detector
+from skimage.draw import polygon
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("dataset")
@@ -55,6 +57,23 @@ class UUVDataset:
         last_net_distance = 0.0
         dvl_msgs = []
 
+        at_detector = Detector(searchpath=['apriltags'],
+                       families='tag36h11',
+                       nthreads=1,
+                       quad_decimate=1.0,
+                       quad_sigma=0.0,
+                       refine_edges=1,
+                       decode_sharpening=0.25,  
+                       debug=0)
+        
+        width_full, height_full = 1280, 720
+        sx = self.target_width / width_full
+        sy = self.target_height / height_full
+        K = np.array([[sx*882.127027, 0, sx*680.703797],[0, sy*821.778927, sy*360.858385], [0, 0, 1]])
+        camera_params = (K[0,0], K[1,1], K[0,2], K[1,2])
+        # https://shop.laserscanning-europe.com/Set-of-20-magnetic-AprilTags-15-x-15cm
+        tag_size_m = 0.15
+
         # NOTE: This is for the case of two separate bag files
         if self.data_bag_file is not None:
             with rosbag.Bag(self.data_bag_file, 'r') as bag:
@@ -80,19 +99,17 @@ class UUVDataset:
                     if depth_prior is not None or self.max_priors is None:
                         # Check if the image is compressed or not
                         try:
-                            img = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+                            image = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
                         except Exception as e:
                             np_arr = np.frombuffer(msg.data, np.uint8)
-                            img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                            image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-                        flipped_image = cv2.flip(img, 0)
-                        if 'ted' in topic:
-                            _, width, _ = flipped_image.shape
-                            width = width // 2
-                            image = flipped_image[:, width:, :]
-                        else:
-                            flipped_image = cv2.rotate(flipped_image, cv2.ROTATE_180)
-                            image = flipped_image
+                        if 'case_4' in str(self.bag_file) and not 'case_47' in str(self.bag_file):
+                            image = cv2.flip(image, 0)
+
+                        _, width, _ = image.shape
+                        width = width // 2
+                        image = image[:, width:, :]
 
                         image_resized = cv2.resize(image, (self.target_width, self.target_height))
 
@@ -113,6 +130,25 @@ class UUVDataset:
                                 prior_distances.append(prior_mean.mean())
                             else:
                                 prior_distances.append(np.nan)
+
+                        img_gray = cv2.cvtColor(image_resized, cv2.COLOR_RGB2GRAY)
+                        tags = at_detector.detect(img_gray, True, camera_params, tag_size_m)
+                        allowed_tags = [58, 57, 56, 55]
+                        depth = np.zeros((self.target_height, self.target_width), dtype=np.float32)
+                        if len(tags):
+                            for tag in tags:
+                                if tag.tag_id in allowed_tags:
+                                    corners = tag.corners
+                                    rr, cc = polygon(corners[:, 1], corners[:, 0], depth.shape)
+                                    depth[rr, cc] += tag.pose_t[2, 0]
+
+                                else:
+                                    print(f"WARNING: Discarding tag {tag.tag_id}")
+
+                            if depth.sum() > 0.0:
+                                depth_file = output_dir / 'depth' / f'{image_count:05d}_d.npy'
+                                np.save(depth_file, depth)
+                                plt.imsave(output_dir / 'depth' / f'{image_count:05d}_d.jpg', depth)
 
                         timestamps.append(t)
                         image_count += 1

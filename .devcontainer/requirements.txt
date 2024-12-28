@@ -1,2 +1,4 @@
 colorlog
+dt-apriltags
 laspy
+scikit-image
