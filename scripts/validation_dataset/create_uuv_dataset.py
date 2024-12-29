@@ -65,11 +65,8 @@ class UUVDataset:
                        refine_edges=1,
                        decode_sharpening=0.25,  
                        debug=0)
-        
-        width_full, height_full = 1280, 720
-        sx = self.target_width / width_full
-        sy = self.target_height / height_full
-        K = np.array([[sx*882.127027, 0, sx*680.703797],[0, sy*821.778927, sy*360.858385], [0, 0, 1]])
+
+        K = np.array([[882.127027, 0, 680.703797],[0, 821.778927, 360.858385], [0, 0, 1]])
         camera_params = (K[0,0], K[1,1], K[0,2], K[1,2])
         # https://shop.laserscanning-europe.com/Set-of-20-magnetic-AprilTags-15-x-15cm
         tag_size_m = 0.15
@@ -131,22 +128,23 @@ class UUVDataset:
                             else:
                                 prior_distances.append(np.nan)
 
-                        img_gray = cv2.cvtColor(image_resized, cv2.COLOR_RGB2GRAY)
-                        tags = at_detector.detect(img_gray, True, camera_params, tag_size_m)
+                        img_full_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+                        tags = at_detector.detect(img_full_gray, True, camera_params, tag_size_m)
                         allowed_tags = [58, 57, 56, 55]
-                        depth = np.zeros((self.target_height, self.target_width), dtype=np.float32)
+                        depth_full = np.zeros((img_full_gray.shape[0], img_full_gray.shape[1]), dtype=np.float32)
                         if len(tags):
                             for tag in tags:
                                 if tag.tag_id in allowed_tags:
                                     corners = tag.corners
-                                    rr, cc = polygon(corners[:, 1], corners[:, 0], depth.shape)
-                                    depth[rr, cc] += tag.pose_t[2, 0]
+                                    rr, cc = polygon(corners[:, 1], corners[:, 0], depth_full.shape)
+                                    depth_full[rr, cc] += tag.pose_t[2, 0]
 
                                 else:
                                     print(f"WARNING: Discarding tag {tag.tag_id}")
 
-                            if depth.sum() > 0.0:
+                            if depth_full.sum() > 0.0:
                                 depth_file = output_dir / 'depth' / f'{image_count:05d}_d.npy'
+                                depth = cv2.resize(depth_full, (self.target_width, self.target_height), cv2.INTER_NEAREST)
                                 np.save(depth_file, depth)
                                 plt.imsave(output_dir / 'depth' / f'{image_count:05d}_d.jpg', depth)
 
