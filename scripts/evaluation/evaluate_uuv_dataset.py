@@ -22,7 +22,8 @@ class UUVResult:
         self.dir = Path(dir)
         os.makedirs(self.dir, exist_ok=True)
 
-    def save_output(self, index, depth_prediction):
+    def save_output(self, sample, depth_prediction):
+        index = sample['index']
         depth_prediction_np = np.zeros((480, 640))
         npy_file = str(self.dir / f"{index}.npy")
         if depth_prediction is not None:
@@ -46,7 +47,7 @@ def main():
     interface.set_depth_range((depth_min, depth_max))
     interface.set_output_channels(2)
 
-    interface.set_size(480, 640)
+    interface.set_size(518, 518)
     interface.set_batch_size(1)
     interface.set_criterion()
     interface.set_use_depth_prior(True)
@@ -55,10 +56,8 @@ def main():
     uuv_result = UUVResult()
     uuv_result.set_dir(output_dir)
     interface.load_model(pretrained_from=args.network)
-    loader = interface.get_single_dataset_loader(args.dataset, min_index=0, max_index=-1)
+    loader, _ = interface.get_single_dataset(args.dataset, min_index=0, max_index=-1)
     interface.validate_epoch(0, loader, iteration_callback=uuv_result.save_output)
-
-
 
 if __name__ == "__main__":
     main()

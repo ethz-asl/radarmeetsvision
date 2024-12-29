@@ -33,7 +33,7 @@ class BlearnDataset(Dataset):
             Resize(
                 width=size[0],
                 height=size[1],
-                resize_target=True if 'train' in mode else False,
+                resize_target=True if 'train' in self.mode else False,
                 keep_aspect_ratio=True,
                 ensure_multiple_of=14,
                 resize_method='lower_bound',
@@ -124,7 +124,11 @@ class BlearnDataset(Dataset):
             sample = self.transform({'image': image, 'depth': depth, 'depth_prior': depth_prior})
             sample['depth'] = torch.from_numpy(sample['depth'])
             sample['depth'] = torch.nan_to_num(sample['depth'], nan=0.0)
-            sample['valid_mask'] = ((sample['depth'] > self.depth_min) & (sample['depth'] <= self.depth_max))
+
+            if self.depth_min is not None and self.depth_max is not None:
+                sample['valid_mask'] = ((sample['depth'] > self.depth_min) & (sample['depth'] <= self.depth_max))
+            else:
+                sample['valid_mask'] = ((sample['depth'] > 0.0) & (sample['depth'] <= np.inf))
         else:
             sample = self.transform({'image': image, 'depth_prior': depth_prior})
 
@@ -151,6 +155,10 @@ class BlearnDataset(Dataset):
         depth_normalized_path = self.depth_dir / self.depth_normalized_template.format(index)
         if depth_path.is_file():
             depth = np.load(depth_path)
+
+            # Fix the shape to 1xHxW
+            if len(depth.shape) < 3:
+                depth = np.expand_dims(depth, axis=0)
 
         elif depth_normalized_path.is_file():
             if self.depth_range is not None and self.depth_min is not None:

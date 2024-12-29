@@ -10,7 +10,7 @@ import sys
 # This gives plot that can go in publications
 import matplotlib as mpl
 mpl.rcParams['font.size'] = 8
-mpl.rcParams['figure.figsize'] = [9, 2.7]
+mpl.rcParams['figure.figsize'] = [2*9, 2*2.7]
 mpl.rcParams['lines.linewidth'] = 0.6
 mpl.rcParams['grid.linewidth'] = 0.5
 mpl.rcParams['axes.linewidth'] = 0.6
@@ -87,6 +87,8 @@ def process_npy_files(top_directory):
 
     # Iterate through all folders in the top-level directory
     averages = []
+    averages_ap_gt = []
+    averages_ap_pr = []
     averages_file = Path(top_directory) / '..' / 'averages.txt'
     for file_name in os.listdir(top_directory):
         if file_name.endswith(".npy"):
@@ -112,24 +114,33 @@ def process_npy_files(top_directory):
                 avg_value = np.mean(center_field) + STEREO_TO_IMU_DEPTH_CALIB
                 averages.append((timestamp_dict[index], avg_value))
             else:
-                averages.append((timestamp_dict[index], None))
+                averages.append((timestamp_dict[index], np.nan))
 
-            # Try to load the depth groundtruth
+            # Try to load the depth groundtruth from april tags
             depth_file = Path(top_directory) / '..' / 'depth' / f'{index:05d}_d.npy'
             if depth_file.is_file():
                 depth = np.load(depth_file)
                 depth_groundtruth_mask = depth > 0.0
-                avg_pred = prediction[depth_groundtruth_mask]
-                avg_gt = depth[depth_groundtruth_mask]
-                print(avg_pred, avg_gt)
-                absrel = (np.abs(avg_pred - avg_gt) / avg_gt).mean()
-                print(absrel)
-                import pdb; pdb.set_trace()
+                avg_pred = prediction[depth_groundtruth_mask].mean()
+                avg_gt = depth[depth_groundtruth_mask].mean()
+                averages_ap_pr.append((timestamp_dict[index], avg_pred))
+                averages_ap_gt.append((timestamp_dict[index], avg_gt))
 
-            # Store averages for plotting
+
+    # Store averages for plotting
     averages_np = np.array(averages)
     averages_np = averages_np[averages_np[:, 0].argsort()]
-    folder_averages['Avg. depth [m]'] = averages_np
+    averages_ap_pr_np = np.array(averages_ap_pr)
+    if len(averages_ap_pr_np):
+        averages_ap_pr_np = averages_ap_pr_np[averages_ap_pr_np[:, 0].argsort()]
+        folder_averages['Predicted Depth @ AprilTag [m]'] = averages_ap_pr_np
+
+    averages_ap_gt_np = np.array(averages_ap_gt)
+    if len(averages_ap_gt_np):
+        averages_ap_gt_np = averages_ap_gt_np[averages_ap_gt_np[:, 0].argsort()]
+        folder_averages['Groundtruth Depth @ AprilTag [m]'] = averages_ap_gt_np
+
+    folder_averages['Predicted Depth @ Center [m]'] = averages_np
 
     # Write the averages to a file in the same folder
     try:
@@ -163,46 +174,31 @@ def low_pass_filter(data, cutoff=0.025, order=2):
 def plot_averages(folder_averages):
     # Define a list of marker styles
     marker_styles = itertools.cycle(['o', 's', 'D', '^', 'v', '*', '+', 'x'])
+    colors = itertools.cycle(['#E69F00', '#56B4E9', '#009E73', '#F0E442', '#0072B2',
+                              '#D55E00', '#CC79A7', '#999999', '#F4A582', '#92C5DE'])
 
     # Create a figure with two subplots
-    fig, axs = plt.subplots(2, 1, figsize=(10, 12), sharex=True)
+    _, axs = plt.subplots(1, 1, figsize=(10, 6.18), sharex=True)
 
     for folder_name, averages in folder_averages.items():
         # Plot original averages
         marker = next(marker_styles)
+        color = next(colors)
         averages_np = np.array(averages)
-        axs[0].plot(
+        axs.plot(
             averages_np[:, 0],
             averages_np[:, 1],
             label=folder_name,
             marker=marker,
-            markersize=3
-        )
-        
-        # Apply low-pass filter and plot
-        filtered_averages = low_pass_filter(averages_np[:, 1])
-        axs[1].plot(
-            averages_np[:, 0],
-            filtered_averages,
-            label=f"{folder_name} (LP)",
-            linewidth=2
+            markersize=3,
+            c=color
         )
 
     # Add details to the original averages plot
-    axs[0].set_xlabel("Time [s]")
-    axs[0].set_ylabel("Average Depth [m]")
-    # axs[0].set_xlim(400, 3500)
-    # axs[0].set_ylim(0, 3.0)
-    axs[0].legend(loc="best")
-    axs[0].grid(True)
-
-    # Add details to the filtered averages plot
-    axs[1].set_xlabel("Time [s]")
-    axs[1].set_ylabel("LP Average Depth [m]")
-    # axs[1].set_xlim(400, 3500)
-    # axs[1].set_ylim(0, 3.0)
-    axs[1].legend(loc="best")
-    axs[1].grid(True)
+    axs.set_xlabel("Time [s]")
+    axs.set_ylabel("Depth [m]")
+    axs.legend(loc="best")
+    axs.grid(True)
 
     # Adjust layout and show the plot
     plt.tight_layout()

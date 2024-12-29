@@ -145,8 +145,8 @@ class Interface:
 
         return loader, dataset
 
-    def get_single_dataset(self, dataset_dir, min_index=0, max_index=-1):
-        dataset = BlearnDataset(dataset_dir, 'all', self.size, min_index, max_index, self.depth_prior_dir)
+    def get_single_dataset(self, dataset_dir, min_index=0, max_index=-1, mode='all'):
+        dataset = BlearnDataset(dataset_dir, mode, self.size, min_index, max_index, self.depth_prior_dir)
         loader = DataLoader(dataset, batch_size=self.batch_size, pin_memory=True, drop_last=True)
         return dataset, loader
 
@@ -169,8 +169,8 @@ class Interface:
 
         depth_prior = sample['depth_prior'].to(self.device)
         if self.use_depth_prior:
-            depth_prior = depth_prior.unsqueeze(1)
-            image = torch.cat((image, depth_prior), axis=1)
+            depth_prior = depth_prior.unsqueeze(0)
+            image = torch.cat((image, depth_prior), axis=0).unsqueeze(0)
 
         if 'depth' in sample.keys() and 'valid_mask' in sample.keys():
             depth_target = sample['depth'].to(self.device)
@@ -243,7 +243,9 @@ class Interface:
                             nsamples += 1
 
                 if i % 10 == 0:
-                    abs_rel = (self.results["abs_rel"]/nsamples).item()
+                    abs_rel = 0.0
+                    if nsamples > 0:
+                        abs_rel = (self.results["abs_rel"]/nsamples).item()
                     logger.info(f'Iter: {i}/{len(val_loader)}, Absrel: {abs_rel:.3f}')
 
         self.update_best_result(self.results, nsamples)
