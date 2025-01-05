@@ -23,7 +23,7 @@ Contains the metric network based on [Depth Anything V2](https://github.com/Dept
 All important code diffs compared to this upstream codebase are outlined in general.
 
 ### Pretrained networks
-We provide the networks obtained from training and used for evaluation in the paper [here](tbd).
+We provide the networks obtained from training and used for evaluation in the paper [here](https://drive.google.com/file/d/1jJN_75OLDWyFMOjH_NrAl0Set08Gpzh0/view?usp=drive_link).
 
 ## Training datasets
 **blearn** is a tool that allows you to generate a synthetic image and depth training dataset using Blender.
@@ -31,7 +31,7 @@ Together with a mesh and texture obtained from photogrammetry, realistic synthet
 The script is executed with Blender's built-in Python interpreter, which has the advantage that the Blender Python API is correctly loaded already.
 
 ### Download existing datasets
-Existing datasets can be downloaded from [here](tdb). The download contains the datasets, as well as the blender projects used to obtain the datasets.
+Existing datasets can be downloaded from [here](https://drive.google.com/file/d/1jJN_75OLDWyFMOjH_NrAl0Set08Gpzh0/view?usp=drive_link). The download contains the datasets, as well as the blender projects used to obtain the datasets.
 
 ### Generating training datasets
 In order to (re-)generate the training datasets, the following steps are needed:
@@ -41,4 +41,4 @@ In order to (re-)generate the training datasets, the following steps are needed:
 4. The dataset rendering can then be started using: `blender -b <path to blender project file> --python blearn.py`. Ensure that you adjust the config file accordingly in `blearn.py`.
 
 ## Validation datasets
-The method for obtaining the validation datasets is described in the paper. The datasets are made available [here](tbd).
+The method for obtaining the validation datasets is described in the paper. The datasets are made available [here](https://drive.google.com/file/d/1jJN_75OLDWyFMOjH_NrAl0Set08Gpzh0/view?usp=drive_link).

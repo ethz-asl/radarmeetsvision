@@ -45,6 +45,7 @@ class Evaluation:
         self.interface.set_depth_range((depth_min, depth_max))
         self.interface.set_output_channels(network_config['output_channels'])
         self.interface.set_use_depth_prior(network_config['use_depth_prior'])
+        self.interface.set_relative_depth(network_config['relative_depth'])
 
         network_file = None
         if self.networks_dir is not None and config['networks'][network_key] is not None:

@@ -18,12 +18,12 @@ from torch.utils.data import DataLoader
 logger = logging.getLogger(__name__)
 
 class Interface:
-    def __init__(self):
+    def __init__(self, force_gpu=False):
         self.batch_size = None
         self.criterion = None
         self.depth_min_max = None
         self.depth_prior_dir = None
-        self.device = get_device()
+        self.device = get_device(force_gpu=force_gpu)
         self.encoder = None
         self.lr = None
         self.max_depth = None
@@ -32,6 +32,7 @@ class Interface:
         self.optimizer = None
         self.output_channels = None
         self.previous_best = self.reset_previous_best()
+        self.relative_depth = None
         self.results = None
         self.results_path = None
         self.use_depth_prior = None
@@ -78,6 +79,9 @@ class Interface:
         else:
             logger.error(f'{self.results_path} does not exist')
 
+    def set_relative_depth(self, relative_depth):
+        self.relative_depth = bool(relative_depth)
+
     def get_results(self):
         return self.results, self.results_per_sample
 
@@ -88,8 +92,14 @@ class Interface:
             logger.info(f'Using encoder: {self.encoder}')
             logger.info(f'Using max depth: {self.max_depth}')
             logger.info(f'Using output channels: {self.output_channels}')
+            logger.info(f'Using relative depth: {self.relative_depth}')
 
-            self.model = get_model(pretrained_from, self.use_depth_prior, self.encoder, self.max_depth, output_channels=self.output_channels)
+            # The network should predict from 0 to 1
+            max_depth = self.max_depth
+            if self.relative_depth:
+                max_depth = 1.0
+
+            self.model = get_model(pretrained_from, self.use_depth_prior, self.encoder, max_depth, output_channels=self.output_channels)
             self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
             self.model.to(self.device)
         else:
@@ -150,18 +160,17 @@ class Interface:
         loader = DataLoader(dataset, batch_size=self.batch_size, pin_memory=True, drop_last=True)
         return dataset, loader
 
-    def update_best_result(self, results, nsamples):
-        if nsamples:
-            logger.info('==========================================================================================')
-            logger.info('{:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}'.format(*tuple(results.keys())))
-            logger.info('{:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}'.format(*tuple([(v / nsamples).item() for v in results.values()])))
-            logger.info('==========================================================================================')
+    def update_best_result(self, results):
+        logger.info('==========================================================================================')
+        logger.info('{:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}'.format(*tuple(results.keys())))
+        logger.info('{:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}'.format(*tuple([v for v in results.values()])))
+        logger.info('==========================================================================================')
 
-            for k in results.keys():
-                if k in ['d1', 'd2', 'd3']:
-                    self.previous_best[k] = max(self.previous_best[k], (results[k] / nsamples).item())
-                else:
-                    self.previous_best[k] = min(self.previous_best[k], (results[k] / nsamples).item())
+        for k in results.keys():
+            if k in ['d1', 'd2', 'd3']:
+                self.previous_best[k] = max(self.previous_best[k], results[k])
+            else:
+                self.previous_best[k] = min(self.previous_best[k], results[k])
 
 
     def prepare_sample(self, sample, random_flip=False):
@@ -183,7 +192,6 @@ class Interface:
         else:
             depth_target, mask = None, None
 
-
         return image, depth_prior, depth_target, mask
 
 
@@ -198,7 +206,7 @@ class Interface:
             image, _, depth_target, mask = self.prepare_sample(sample, random_flip=True)
 
             prediction = self.model(image)
-            depth_prediction = get_depth_from_prediction(prediction, image)
+            depth_prediction = get_depth_from_prediction(prediction, image, relative_depth=self.relative_depth)
             if depth_prediction is not None and mask.sum() > 0:
                 loss = self.criterion(depth_prediction, depth_target, mask)
                 if loss is not None:
@@ -228,7 +236,7 @@ class Interface:
                 with torch.no_grad():
                     prediction = self.model(image)
                     prediction = interpolate_shape(prediction, depth_target)
-                    depth_prediction = get_depth_from_prediction(prediction, image)
+                    depth_prediction = get_depth_from_prediction(prediction, image, relative_depth=self.relative_depth)
 
                     # TODO: Expand on this interface
                     if iteration_callback is not None:
@@ -248,8 +256,13 @@ class Interface:
                         abs_rel = (self.results["abs_rel"]/nsamples).item()
                     logger.info(f'Iter: {i}/{len(val_loader)}, Absrel: {abs_rel:.3f}')
 
-        self.update_best_result(self.results, nsamples)
-        self.save_checkpoint(epoch)
+        # Save the results
+        if nsamples:
+            for k in self.results.keys():
+                self.results[k] = (self.results[k]/nsamples).item()
+
+            self.update_best_result(self.results)
+            self.save_checkpoint(epoch)
 
 
     def save_checkpoint(self, epoch):
