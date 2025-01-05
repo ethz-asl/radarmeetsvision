@@ -1,21 +1,21 @@
 {
     "scenarios": {
         "Industrial Hall": "maschinenhalle0",
-        "Agricultural Field": "outdoor0",
+        "Agricultural Field": "outdoor3",
         "Rhône Glacier": "rhone_flight"
     },
     "index": {
         "maschinenhalle0": [0, -1],
-        "outdoor0": [0, -1],
+        "outdoor3": [0, -1],
         "rhone_flight": [1205, 1505]
     },
     "networks": {
-        "Metric Depth \\cite{depthanythingv2}-S": "rgb_s_bs8_e9.pth",
-        "Metric Depth \\cite{depthanythingv2}-B": "rgb_b_bs4_e8.pth",
-        "Scaled Relative Depth \\cite{depthanythingv2}-S": "relrgb_s_bs8_e9.pth",
-        "Scaled Relative Depth \\cite{depthanythingv2}-B": "relrgb_b_bs4_e9.pth",
-        "Ours-S": "radar_s_bs8_e19.pth",
-        "Ours-B": "radar_b_bs4_e21.pth"
+        "Metric Depth \\cite{depthanythingv2}-S": "rgb-s-e16.pth",
+        "Metric Depth \\cite{depthanythingv2}-B": "rgb-b-e8.pth",
+        "Scaled Relative Depth \\cite{depthanythingv2}-S": "relative-s-e6.pth",
+        "Scaled Relative Depth \\cite{depthanythingv2}-B": "relative-b-e0.pth",
+        "Ours-S": "radar-s-e12.pth",
+        "Ours-B": "radar-b-e24.pth"
     },
     "Metric Depth \\cite{depthanythingv2}-S": {
         "use_depth_prior": false,
@@ -24,7 +24,7 @@
         "depth_min": 0.19983673095703125,
         "depth_max": 120.49285888671875,
         "encoder": "vits",
-        "marker": "X",
+        "marker": "o",
         "plot_prediction": 0
     },
     "Metric Depth \\cite{depthanythingv2}-B": {
@@ -34,25 +34,25 @@
         "depth_min": 0.19983673095703125,
         "depth_max": 120.49285888671875,
         "encoder": "vitb",
-        "marker": "X",
+        "marker": "o",
         "plot_prediction": 0
     },
     "Scaled Relative Depth \\cite{depthanythingv2}-S": {
-        "use_depth_prior": false,
+        "use_depth_prior": true,
         "output_channels": 1,
         "relative_depth": 1,
-        "depth_min": 0.0,
-        "depth_max": 1.0,
+        "depth_min": 0.19983673095703125,
+        "depth_max": 120.49285888671875,
         "encoder": "vits",
         "marker": "D",
         "plot_prediction": 0
     },
     "Scaled Relative Depth \\cite{depthanythingv2}-B": {
-        "use_depth_prior": false,
+        "use_depth_prior": true,
         "output_channels": 1,
         "relative_depth": 1,
-        "depth_min": 0.0,
-        "depth_max": 1.0,
+        "depth_min": 0.19983673095703125,
+        "depth_max": 120.49285888671875,
         "encoder": "vitb",
         "marker": "D",
         "plot_prediction": 0
@@ -64,7 +64,7 @@
         "depth_min": 0.19983673095703125,
         "depth_max": 120.49285888671875,
         "encoder": "vits",
-        "marker": "o",
+        "marker": "X",
         "plot_prediction": 0
     },
     "Ours-B": {
@@ -74,7 +74,7 @@
         "depth_min": 0.19983673095703125,
         "depth_max": 120.49285888671875,
         "encoder": "vitb",
-        "marker": "o",
+        "marker": "X",
         "plot_prediction": 1
     },
     "height": 480,

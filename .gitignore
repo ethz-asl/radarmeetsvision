@@ -165,3 +165,4 @@ tests/resources/results
 tests/resources/*.png
 tests/resources/*.pkl
 blearn/output
+*.out

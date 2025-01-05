@@ -10,17 +10,27 @@ import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
 
-def get_depth_from_prediction(prediction, input):
+def get_depth_from_prediction(prediction, input, relative_depth=False):
     depth = prediction[:, 0, :, :]
-    if prediction.shape[1] > 1 and input.shape[1] > 3:
-        prior = input[:, 3, :, :]
-        prior_mask = prior > 0
-        if prior_mask.sum():
-            prior_mean = prior[prior_mask].mean()
-            confidence = prediction[:, 1, :, :]
-            depth = depth * confidence + prior_mean * (1.0 - confidence)
-        else:
-            depth = None
+
+    if input.shape[1] > 3:
+        prior = interpolate_shape(input[:, 3, :, :], depth, mode='nearest').squeeze(0)
+
+        # If using a weight output channel + depth priors
+        if prediction.shape[1] > 1:
+            prior_mask = prior > 0
+            if prior_mask.sum():
+                prior_mean = prior[prior_mask].mean()
+                confidence = prediction[:, 1, :, :]
+                depth = depth * confidence + prior_mean * (1.0 - confidence)
+            else:
+                depth = None
+
+        # If predicting relative depth
+        elif relative_depth:
+            mask_valid_depth = (prior > 0.0) & (depth > 0.0)
+            prior_mean = (prior[mask_valid_depth] / depth[mask_valid_depth]).mean()
+            depth *= prior_mean
 
     return depth
 
