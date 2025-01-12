@@ -38,6 +38,8 @@ class UUVDataset:
         rgb_full_dir.mkdir(exist_ok=True)
         depth_dir = output_dir / 'depth'
         depth_dir.mkdir(exist_ok=True)
+        depth_fft_dir = output_dir / 'depth_fft'
+        depth_fft_dir.mkdir(exist_ok=True)
         depth_prior_dir = output_dir / 'depth_prior'
         depth_prior_dir.mkdir(exist_ok=True)
         self.target_width = 640
@@ -89,9 +91,9 @@ class UUVDataset:
 
                     net_distances.append(last_net_distance)
 
-                    depth_prior = None
+                    depth_prior, fft_data = None, None
                     if self.max_priors is not None:
-                        depth_prior = self.get_fft_depth_prior(image_count, max_priors=self.max_priors, last_dvl_distance=last_net_distance)
+                        depth_prior, fft_data = self.get_fft_depth_prior(image_count, max_priors=self.max_priors, last_dvl_distance=last_net_distance)
 
                     if depth_prior is not None or self.max_priors is None:
                         # Check if the image is compressed or not
@@ -128,16 +130,33 @@ class UUVDataset:
                             else:
                                 prior_distances.append(np.nan)
 
+                        # Detect the apriltags
                         img_full_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
                         tags = at_detector.detect(img_full_gray, True, camera_params, tag_size_m)
                         allowed_tags = [58, 57, 56, 55]
                         depth_full = np.zeros((img_full_gray.shape[0], img_full_gray.shape[1]), dtype=np.float32)
+                        depth_fft_full = np.zeros((img_full_gray.shape[0], img_full_gray.shape[1]), dtype=np.float32)
                         if len(tags):
                             for tag in tags:
                                 if tag.tag_id in allowed_tags:
                                     corners = tag.corners
                                     rr, cc = polygon(corners[:, 1], corners[:, 0], depth_full.shape)
                                     depth_full[rr, cc] += tag.pose_t[2, 0]
+
+                                    # Get the average of FFT priors around this apriltag
+                                    # delta_u = delta_x * f_x
+                                    delta_u_max = tag_size_m * K[0][0] / tag.pose_t[2, 0]
+                                    fft_points = fft_data[['y', 'x']].values # u, v
+                                    if len(fft_points):
+                                        fft_points[:, 0] *= (float(img_full_gray.shape[1]) / float(320))
+                                        fft_points[:, 1] *= (float(img_full_gray.shape[0]) / float(240))
+                                        fft_depth = fft_data[['z']].values
+                                        u_tag, v_tag = int(tag.center[0]), int(tag.center[1])
+                                        tag_center = np.array([u_tag, v_tag])
+                                        distances = np.linalg.norm(fft_points - tag_center, axis=1)
+                                        fft_depth = fft_depth[distances <= delta_u_max]
+                                        if len(fft_depth):
+                                            depth_fft_full[rr, cc] += fft_depth.mean()
 
                                 else:
                                     print(f"WARNING: Discarding tag {tag.tag_id}")
@@ -147,6 +166,12 @@ class UUVDataset:
                                 depth = cv2.resize(depth_full, (self.target_width, self.target_height), cv2.INTER_NEAREST)
                                 np.save(depth_file, depth)
                                 plt.imsave(output_dir / 'depth' / f'{image_count:05d}_d.jpg', depth)
+
+                            if depth_fft_full.sum() > 0.0:
+                                depth_file = output_dir / 'depth_fft' / f'{image_count:05d}_d.npy'
+                                depth_fft = cv2.resize(depth_fft_full, (self.target_width, self.target_height), cv2.INTER_NEAREST)
+                                np.save(depth_file, depth_fft)
+                                plt.imsave(output_dir / 'depth_fft' / f'{image_count:05d}_d.jpg', depth_fft)
 
                         timestamps.append(t)
                         image_count += 1
@@ -203,10 +228,11 @@ class UUVDataset:
             data_raw = pd.read_csv(fft_csv_file, header=None, names=['x', 'y', 'z'])  # Assuming no headers in the CSV
         except Exception as e:
             print(f"Error reading CSV file: {e}")
-            return None
+            return None, None
 
         # There are some invalid points that are just at 0,0
-        data = data_raw.loc[(data_raw['x'] > 0) & (data_raw['y'] > 0)]
+        data_full = data_raw.loc[(data_raw['x'] > 0) & (data_raw['y'] > 0)]
+        data = data_full
 
         if max_priors is not None and len(data) > max_priors:
             points = data[['x', 'y']].values
@@ -257,9 +283,7 @@ class UUVDataset:
             depth_prior += (last_dvl_distance + IMU_TO_STEREO_DEPTH_CALIB) * translated_mask
 
         depth_prior = depth_prior.T
-        return depth_prior
-
-
+        return depth_prior, data_full
 
     def create_circular_mask(self, h, w, center=None, radius=None):
         # From:
