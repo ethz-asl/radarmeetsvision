@@ -1,0 +1,10 @@
+python3 scripts/validation_dataset/create_uuv_dataset.py /home/asl/Storage/20241115_SINTEF_Journal/01_Datasets/case_4 --max_priors 5 &
+python3 scripts/validation_dataset/create_uuv_dataset.py /home/asl/Storage/20241115_SINTEF_Journal/01_Datasets/case_4_2 --max_priors 5 &
+python3 scripts/validation_dataset/create_uuv_dataset.py /home/asl/Storage/20241115_SINTEF_Journal/01_Datasets/case_25 --max_priors 5 &
+python3 scripts/validation_dataset/create_uuv_dataset.py /home/asl/Storage/20241115_SINTEF_Journal/01_Datasets/case_27 --max_priors 5 &
+python3 scripts/validation_dataset/create_uuv_dataset.py /home/asl/Storage/20241115_SINTEF_Journal/01_Datasets/case_29 --max_priors 5 &
+python3 scripts/validation_dataset/create_uuv_dataset.py /home/asl/Storage/20241115_SINTEF_Journal/01_Datasets/case_30 --max_priors 5 &
+python3 scripts/validation_dataset/create_uuv_dataset.py /home/asl/Storage/20241115_SINTEF_Journal/01_Datasets/case_36 --max_priors 5 &
+python3 scripts/validation_dataset/create_uuv_dataset.py /home/asl/Storage/20241115_SINTEF_Journal/01_Datasets/case_37 --max_priors 5 &
+python3 scripts/validation_dataset/create_uuv_dataset.py /home/asl/Storage/20241115_SINTEF_Journal/01_Datasets/case_38 --max_priors 5 &
+python3 scripts/validation_dataset/create_uuv_dataset.py /home/asl/Storage/20241115_SINTEF_Journal/01_Datasets/case_47 --max_priors 5 &
